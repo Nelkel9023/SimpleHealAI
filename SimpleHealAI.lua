@@ -27,7 +27,6 @@ function SimpleHealAI:CheckSuperWoW()
         return SimpleHealAI.SuperWoW
     end
     
-    -- Check for SuperWoW indicators
     local hasIt = (SUPERWOW_VERSION ~= nil) or 
                   (type(UnitXP) == "function") or 
                   (type(UnitPosition) == "function")
@@ -35,7 +34,7 @@ function SimpleHealAI:CheckSuperWoW()
     SimpleHealAI.SuperWoW = hasIt
     
     if hasIt then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r SuperWoW detected - enhanced range/LoS active")
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r SuperWoW detected - enhanced range/LoS/DirectCast active")
     end
     
     return hasIt
@@ -90,22 +89,20 @@ end
 
 function SimpleHealAI:LoadSettings()
     if not SimpleHealAI_Saved then SimpleHealAI_Saved = {} end
-    -- MsgMode: 0=off, 1=all, 2=new target only (default)
     if SimpleHealAI_Saved.MsgMode == nil then SimpleHealAI_Saved.MsgMode = 2 end
     if SimpleHealAI_Saved.Threshold == nil then SimpleHealAI_Saved.Threshold = 90 end
-    if SimpleHealAI_Saved.HealMode == nil then SimpleHealAI_Saved.HealMode = 1 end  -- 1=efficient, 2=smart
+    if SimpleHealAI_Saved.HealMode == nil then SimpleHealAI_Saved.HealMode = 1 end
     if SimpleHealAI_Saved.UseLOS == nil then SimpleHealAI_Saved.UseLOS = true end
     if SimpleHealAI_Saved.UseCleanse == nil then SimpleHealAI_Saved.UseCleanse = false end
 end
 
 function SimpleHealAI:Announce(targetName, spellName, rank)
     local mode = SimpleHealAI_Saved and SimpleHealAI_Saved.MsgMode or 2
-    
-    if mode == 0 then return end  -- Silent mode
-    if mode == 2 and targetName == SimpleHealAI.LastAnnounce then return end  -- New target only
+    if mode == 0 then return end
+    if mode == 2 and targetName == SimpleHealAI.LastAnnounce then return end
     
     SimpleHealAI.LastAnnounce = targetName
-    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r " .. targetName .. " <- " .. spellName .. " R" .. rank)
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r " .. targetName .. " <- " .. spellName .. (rank and " R" .. rank or ""))
 end
 
 function SimpleHealAI.SlashHandler(msg)
@@ -154,7 +151,7 @@ function SimpleHealAI:ScanSpells()
                 local rankNum = SimpleHealAI:ExtractRank(spellRank)
                 local avgHeal = (minHeal + maxHeal) / 2
                 
-                table.insert(SimpleHealAI.Spells[spellType], {
+                local spellData = {
                     id = i,
                     name = spellName,
                     rank = rankNum,
@@ -162,11 +159,20 @@ function SimpleHealAI:ScanSpells()
                     avg = avgHeal,
                     min = minHeal,
                     max = maxHeal,
-                    hpm = avgHeal / mana  -- Potential HPM (raw efficiency)
-                })
+                    hpm = avgHeal / mana
+                }
+                
+                -- SuperWoW: Get exact range
+                if SimpleHealAI:CheckSuperWoW() and type(SpellInfo) == "function" then
+                    local _, _, _, _, maxR = SpellInfo(i)
+                    spellData.range = maxR or 40
+                else
+                    spellData.range = 40
+                end
+                
+                table.insert(SimpleHealAI.Spells[spellType], spellData)
             end
         else
-            -- Check for Cleanse spells
             local cleanseType = SimpleHealAI:GetCleanseType(spellName, class)
             if cleanseType then
                 if cleanseType == "All" then
@@ -186,7 +192,6 @@ function SimpleHealAI:ScanSpells()
         i = i + 1
     end
     
-    -- Sort by rank (low to high) so we can pick optimal
     table.sort(SimpleHealAI.Spells.Wave, function(a,b) return a.rank < b.rank end)
     table.sort(SimpleHealAI.Spells.Lesser, function(a,b) return a.rank < b.rank end)
     
@@ -197,7 +202,6 @@ end
 
 function SimpleHealAI:GetSpellType(name, class)
     local n = string.lower(name)
-    
     if class == "SHAMAN" then
         if string.find(n, "lesser healing wave") then return "Lesser" end
         if string.find(n, "chain heal") then return "Lesser" end 
@@ -213,7 +217,6 @@ function SimpleHealAI:GetSpellType(name, class)
         if string.find(n, "regrowth") then return "Lesser" end
         if string.find(n, "healing touch") then return "Wave" end
     end
-    
     return nil
 end
 
@@ -296,16 +299,23 @@ function SimpleHealAI:DoHeal(useFast)
     if SimpleHealAI_Saved.UseCleanse then
         local cleanseID = SimpleHealAI:GetCleanseSpell(target.unit)
         if cleanseID then
-            TargetUnit(target.unit)
-            CastSpell(cleanseID, BOOKTYPE_SPELL)
-            SimpleHealAI:Announce(target.name, GetSpellName(cleanseID, BOOKTYPE_SPELL), "Disp")
+            local spellName = GetSpellName(cleanseID, BOOKTYPE_SPELL)
+            if SimpleHealAI:CheckSuperWoW() then
+                CastSpellByName(spellName, target.unit)
+            else
+                local hadTarget = UnitExists("target")
+                local savedTarget = hadTarget and SimpleHealAI:GetTargetInfo() or nil
+                TargetUnit(target.unit)
+                CastSpell(cleanseID, BOOKTYPE_SPELL)
+                if hadTarget and savedTarget then SimpleHealAI:RestoreTarget(savedTarget) end
+            end
+            SimpleHealAI:Announce(target.name, spellName, nil)
             return
         end
     end
     
     local deficit = target.max - target.current
     local spellList = useFast and SimpleHealAI.Spells.Lesser or SimpleHealAI.Spells.Wave
-    
     if table.getn(spellList) == 0 then
         spellList = useFast and SimpleHealAI.Spells.Wave or SimpleHealAI.Spells.Lesser
     end
@@ -321,16 +331,19 @@ function SimpleHealAI:DoHeal(useFast)
         return
     end
     
-    local hadTarget = UnitExists("target")
-    local savedTarget = hadTarget and SimpleHealAI:GetTargetInfo() or nil
-    
-    TargetUnit(target.unit)
-    CastSpell(spell.id, BOOKTYPE_SPELL)
-    
-    if hadTarget and savedTarget then
-        SimpleHealAI:RestoreTarget(savedTarget)
-    elseif not hadTarget then
-        ClearTarget()
+    -- Cast heal
+    if SimpleHealAI:CheckSuperWoW() then
+        CastSpellByName(spell.name .. "(Rank " .. spell.rank .. ")", target.unit)
+    else
+        local hadTarget = UnitExists("target")
+        local savedTarget = hadTarget and SimpleHealAI:GetTargetInfo() or nil
+        TargetUnit(target.unit)
+        CastSpell(spell.id, BOOKTYPE_SPELL)
+        if hadTarget and savedTarget then
+            SimpleHealAI:RestoreTarget(savedTarget)
+        elseif not hadTarget then
+            ClearTarget()
+        end
     end
     
     SimpleHealAI:Announce(target.name, spell.name, spell.rank)
@@ -394,10 +407,8 @@ function SimpleHealAI:GetCleanseSpell(unit)
     for i = 1, 16 do
         local tex = UnitDebuff(unit, i)
         if not tex then break end
-        
         SimpleHealAI_Tooltip:SetOwner(UIParent, "ANCHOR_NONE")
         SimpleHealAI_Tooltip:SetUnitDebuff(unit, i)
-        
         local debuffType = SimpleHealAI_TooltipTextRight1:GetText()
         if debuffType and SimpleHealAI.CleanseSpells[debuffType] then
             SimpleHealAI_Tooltip:Hide()
@@ -409,7 +420,8 @@ function SimpleHealAI:GetCleanseSpell(unit)
 end
 
 function SimpleHealAI:PickBestRank(spellList, deficit)
-    local playerMana = UnitMana("player")
+    local power, mana = UnitMana("player")
+    local playerMana = mana or power
     local mode = SimpleHealAI_Saved and SimpleHealAI_Saved.HealMode or 1
     
     local affordable = {}
