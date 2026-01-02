@@ -5,9 +5,10 @@
     Supports: Shaman, Priest, Paladin, Druid
     
     Usage:
-        /heal        - Smart heal (finds lowest HP party/raid member, picks best rank)
+        /heal        - Smart heal (lowest HP target, best efficiency)
         /sheal       - (alias) Same as /heal
-        /healai help - Show commands
+        /heal config - Open settings (Modes: Efficient/Smart, LOS Toggle)
+        /heal help   - Show commands
 ]]
 
 SimpleHealAI = {}
@@ -158,7 +159,7 @@ function SimpleHealAI:ScanSpells()
                     avg = avgHeal,
                     min = minHeal,
                     max = maxHeal,
-                    hpm = avgHeal / mana  -- Heal Per Mana efficiency
+                    hpm = avgHeal / mana  -- Potential HPM (raw efficiency)
                 })
             end
         end
@@ -398,7 +399,7 @@ function SimpleHealAI:PickBestRank(spellList, deficit)
     
     if table.getn(affordable) == 0 then return nil end
     
-    -- MODE 1: Most Efficient (best ratio of effective healing / mana)
+    -- MODE 1: Most Efficient (picks rank with best actual HPM based on current health deficit)
     if mode == 1 then
         local bestSpell = nil
         local bestEfficiency = -1
