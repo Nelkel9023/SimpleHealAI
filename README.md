@@ -42,9 +42,3 @@ A powerful, light-weight auto-targeting and auto-ranking healing addon for Vanil
 2. Download the repository as a ZIP.
 3. Extract into your World of Warcraft `Interface\AddOns` folder.
 4. Ensure the folder name is exactly `SimpleHealAI`.
-
-## Requirements (Mandatory)
-
-1. **SuperWoW**: Required for Direct Casting, Range, and LOS.
-2. **UnitXP**: Usually bundled with SuperWoW or modern Vanilla clients.
-

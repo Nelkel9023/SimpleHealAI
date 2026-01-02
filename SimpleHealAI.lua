@@ -132,6 +132,7 @@ end
 function SimpleHealAI:ScanSpells()
     SimpleHealAI.Spells = {Wave = {}, Lesser = {}}
     SimpleHealAI.CleanseSpells = {}
+    SimpleHealAI.MaxRange = 0
     
     local _, class = UnitClass("player")
     local validClasses = {SHAMAN=1, PRIEST=1, PALADIN=1, DRUID=1}
@@ -166,10 +167,14 @@ function SimpleHealAI:ScanSpells()
                 
                 -- SuperWoW: Get exact range
                 if SimpleHealAI:CheckSuperWoW() and type(SpellInfo) == "function" then
-                    local _, _, _, _, maxR = SpellInfo(i)
-                    spellData.range = maxR or 40
+                    local _, _, _, _, _, _, _, maxR = SpellInfo(i)
+                    spellData.range = (maxR and maxR > 0) and maxR or 40
                 else
                     spellData.range = 40
+                end
+                
+                if not SimpleHealAI.MaxRange or spellData.range > SimpleHealAI.MaxRange then
+                    SimpleHealAI.MaxRange = spellData.range
                 end
                 
                 table.insert(SimpleHealAI.Spells[spellType], spellData)
@@ -391,17 +396,36 @@ function SimpleHealAI:AddCandidate(list, unit)
 end
 
 function SimpleHealAI:CanReach(unit)
+    if not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return false end
     if UnitIsUnit(unit, "player") then return true end
-    if not UnitExists(unit) or not UnitIsVisible(unit) then return false end
     
+    local maxRange = SimpleHealAI.MaxRange or 40
     local dist = SimpleHealAI:GetUnitDistance(unit)
-    if dist and dist > 40 then return false end
+    if dist and dist > maxRange then return false end
     
+    -- Safety check: Some people report 38y as max effective range for Paladins
+    if not dist and SimpleHealAI_Saved.UseLOS then -- If we don't have exact distance, use LOS as proxy for visibility/range
+        if not UnitIsVisible(unit) then return false end
+    end
+
     if SimpleHealAI_Saved and SimpleHealAI_Saved.UseLOS then
         if SimpleHealAI:IsInLineOfSight(unit) == false then return false end
     end
     
-    if not dist and not CheckInteractDistance(unit, 4) then return false end
+    if not dist then
+        -- Fallback to IsSpellInRange if we have a representative spell
+        local testSpell = nil
+        if SimpleHealAI.Spells.Wave[1] then testSpell = SimpleHealAI.Spells.Wave[1].name
+        elseif SimpleHealAI.Spells.Lesser[1] then testSpell = SimpleHealAI.Spells.Lesser[1].name end
+        
+        if testSpell and IsSpellInRange then
+            local inRange = IsSpellInRange(testSpell, unit)
+            if inRange == 0 then return false end
+        elseif not CheckInteractDistance(unit, 4) then
+            -- Extreme fallback (limited to ~28y)
+            return false
+        end
+    end
     return true
 end
 
