@@ -1,0 +1,140 @@
+<Ui xmlns="http://www.blizzard.com/wow/ui/">
+    <Script file="SimpleHealAI.lua"/>
+
+    <!-- Tooltip for spell parsing -->
+    <GameTooltip name="SimpleHealAI_Tooltip" inherits="GameTooltipTemplate" hidden="true"/>
+
+    <!-- Main frame -->
+    <Frame name="SimpleHealAI_Frame">
+        <Scripts>
+            <OnLoad>SimpleHealAI:OnLoad();</OnLoad>
+            <OnEvent>SimpleHealAI:OnEvent(event);</OnEvent>
+        </Scripts>
+    </Frame>
+
+    <!-- Config frame -->
+    <Frame name="SimpleHealAI_ConfigFrame" toplevel="true" movable="true" enableMouse="true" frameStrata="DIALOG" hidden="true">
+        <Size><AbsDimension x="180" y="280"/></Size>
+        <Anchors><Anchor point="CENTER"/></Anchors>
+        <Backdrop bgFile="Interface\DialogFrame\UI-DialogBox-Background" edgeFile="Interface\DialogFrame\UI-DialogBox-Border" tile="true">
+            <BackgroundInsets><AbsInset left="11" right="12" top="12" bottom="11"/></BackgroundInsets>
+            <TileSize><AbsValue val="32"/></TileSize>
+            <EdgeSize><AbsValue val="32"/></EdgeSize>
+        </Backdrop>
+        <Layers>
+            <Layer level="ARTWORK">
+                <FontString name="SimpleHealAI_ConfigTitle" inherits="GameFontNormalLarge" text="SimpleHealAI">
+                    <Anchors><Anchor point="TOP" relativePoint="TOP"><Offset><AbsDimension x="0" y="-16"/></Offset></Anchor></Anchors>
+                </FontString>
+            </Layer>
+        </Layers>
+        <Frames>
+            <!-- Close button -->
+            <Button name="SimpleHealAI_CloseBtn" inherits="UIPanelCloseButton">
+                <Anchors><Anchor point="TOPRIGHT"><Offset><AbsDimension x="-5" y="-5"/></Offset></Anchor></Anchors>
+            </Button>
+
+            <!-- Heal Mode label -->
+            <FontString name="SimpleHealAI_ModeLabel" inherits="GameFontNormal" text="Heal Mode:">
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-42"/></Offset></Anchor></Anchors>
+            </FontString>
+
+            <!-- Heal Mode buttons (Efficient / Smart) -->
+            <Button name="SimpleHealAI_ModeEff" inherits="UIPanelButtonTemplate" text="Eff">
+                <Size><AbsDimension x="65" y="22"/></Size>
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-58"/></Offset></Anchor></Anchors>
+                <Scripts>
+                    <OnClick>SimpleHealAI:SetHealMode(1);</OnClick>
+                    <OnEnter>SimpleHealAI:ShowTooltip("Best efficiency: most healing for the least mana.");</OnEnter>
+                    <OnLeave>GameTooltip:Hide();</OnLeave>
+                </Scripts>
+            </Button>
+            <Button name="SimpleHealAI_ModeSmart" inherits="UIPanelButtonTemplate" text="Smart">
+                <Size><AbsDimension x="65" y="22"/></Size>
+                <Anchors><Anchor point="LEFT" relativeTo="SimpleHealAI_ModeEff" relativePoint="RIGHT"><Offset><AbsDimension x="4" y="0"/></Offset></Anchor></Anchors>
+                <Scripts>
+                    <OnClick>SimpleHealAI:SetHealMode(2);</OnClick>
+                    <OnEnter>SimpleHealAI:ShowTooltip("Smart match: smallest rank that covers the deficit.");</OnEnter>
+                    <OnLeave>GameTooltip:Hide();</OnLeave>
+                </Scripts>
+            </Button>
+
+            <!-- LOS Toggle -->
+            <Button name="SimpleHealAI_ModeLOS" inherits="UIPanelButtonTemplate" text="LOS: On">
+                <Size><AbsDimension x="134" y="22"/></Size>
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-85"/></Offset></Anchor></Anchors>
+                <Scripts>
+                    <OnClick>SimpleHealAI:ToggleLOS();</OnClick>
+                    <OnEnter>SimpleHealAI:ShowTooltip("Only heal people you can see (requires SuperWoW).");</OnEnter>
+                    <OnLeave>GameTooltip:Hide();</OnLeave>
+                </Scripts>
+            </Button>
+
+            <!-- Message Mode label -->
+            <FontString name="SimpleHealAI_MsgLabel" inherits="GameFontNormal" text="Chat Messages:">
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-115"/></Offset></Anchor></Anchors>
+            </FontString>
+
+            <!-- Message Mode buttons -->
+            <Button name="SimpleHealAI_MsgOff" inherits="UIPanelButtonTemplate" text="Off">
+                <Size><AbsDimension x="42" y="22"/></Size>
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-131"/></Offset></Anchor></Anchors>
+                <Scripts>
+                    <OnClick>SimpleHealAI:SetMsgMode(0);</OnClick>
+                    <OnEnter>SimpleHealAI:ShowTooltip("Disable all chat notifications.");</OnEnter>
+                    <OnLeave>GameTooltip:Hide();</OnLeave>
+                </Scripts>
+            </Button>
+            <Button name="SimpleHealAI_MsgAll" inherits="UIPanelButtonTemplate" text="All">
+                <Size><AbsDimension x="42" y="22"/></Size>
+                <Anchors><Anchor point="LEFT" relativeTo="SimpleHealAI_MsgOff" relativePoint="RIGHT"><Offset><AbsDimension x="4" y="0"/></Offset></Anchor></Anchors>
+                <Scripts>
+                    <OnClick>SimpleHealAI:SetMsgMode(1);</OnClick>
+                    <OnEnter>SimpleHealAI:ShowTooltip("Announce every heal cast (can be spammy).");</OnEnter>
+                    <OnLeave>GameTooltip:Hide();</OnLeave>
+                </Scripts>
+            </Button>
+            <Button name="SimpleHealAI_MsgNew" inherits="UIPanelButtonTemplate" text="New">
+                <Size><AbsDimension x="42" y="22"/></Size>
+                <Anchors><Anchor point="LEFT" relativeTo="SimpleHealAI_MsgAll" relativePoint="RIGHT"><Offset><AbsDimension x="4" y="0"/></Offset></Anchor></Anchors>
+                <Scripts>
+                    <OnClick>SimpleHealAI:SetMsgMode(2);</OnClick>
+                    <OnEnter>SimpleHealAI:ShowTooltip("Announce only when target changes (recommended).");</OnEnter>
+                    <OnLeave>GameTooltip:Hide();</OnLeave>
+                </Scripts>
+            </Button>
+
+            <!-- Threshold label -->
+            <FontString name="SimpleHealAI_ThreshLabel" inherits="GameFontNormal" text="Heal Threshold:">
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-168"/></Offset></Anchor></Anchors>
+            </FontString>
+
+            <!-- Threshold slider -->
+            <Slider name="SimpleHealAI_ThreshSlider" inherits="OptionsSliderTemplate" minValue="50" maxValue="99" valueStep="5">
+                <Size><AbsDimension x="130" y="16"/></Size>
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-193"/></Offset></Anchor></Anchors>
+                <Scripts>
+                    <OnValueChanged>SimpleHealAI:OnThresholdChange(this:GetValue());</OnValueChanged>
+                    <OnEnter>SimpleHealAI:ShowTooltip("Only heal units below this health percentage.");</OnEnter>
+                    <OnLeave>GameTooltip:Hide();</OnLeave>
+                </Scripts>
+            </Slider>
+
+            <!-- Rescan button -->
+            <Button name="SimpleHealAI_ScanBtn" inherits="UIPanelButtonTemplate" text="Rescan Spells">
+                <Size><AbsDimension x="100" y="22"/></Size>
+                <Anchors><Anchor point="BOTTOM"><Offset><AbsDimension x="0" y="18"/></Offset></Anchor></Anchors>
+                <Scripts>
+                    <OnClick>SimpleHealAI:ScanSpells(); SimpleHealAI_ConfigFrame:Hide();</OnClick>
+                    <OnEnter>SimpleHealAI:ShowTooltip("Manually scan your spellbook for new ranks.");</OnEnter>
+                    <OnLeave>GameTooltip:Hide();</OnLeave>
+                </Scripts>
+            </Button>
+        </Frames>
+        <Scripts>
+            <OnMouseDown>this:StartMoving();</OnMouseDown>
+            <OnMouseUp>this:StopMovingOrSizing();</OnMouseUp>
+            <OnShow>SimpleHealAI:RefreshConfig();</OnShow>
+        </Scripts>
+    </Frame>
+</Ui>

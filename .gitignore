@@ -1,0 +1,15 @@
+# Windows
+Thumbs.db
+Desktop.ini
+
+# Git
+.git/
+
+# Backup files
+*.bak
+*.old
+
+# WoW Specific
+*.log
+*.txt
+*.config
