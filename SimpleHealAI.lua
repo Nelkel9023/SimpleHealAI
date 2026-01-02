@@ -99,9 +99,11 @@ end
 function SimpleHealAI:Announce(targetName, spellName, rank)
     local mode = SimpleHealAI_Saved and SimpleHealAI_Saved.MsgMode or 2
     if mode == 0 then return end
-    if mode == 2 and targetName == SimpleHealAI.LastAnnounce then return end
     
-    SimpleHealAI.LastAnnounce = targetName
+    local announceKey = targetName .. "_" .. (rank or "0")
+    if mode == 2 and announceKey == SimpleHealAI.LastAnnounce then return end
+    
+    SimpleHealAI.LastAnnounce = announceKey
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r " .. targetName .. " <- " .. spellName .. (rank and " R" .. rank or ""))
 end
 
@@ -196,7 +198,7 @@ function SimpleHealAI:ScanSpells()
     table.sort(SimpleHealAI.Spells.Lesser, function(a,b) return a.rank < b.rank end)
     
     local total = table.getn(SimpleHealAI.Spells.Wave) + table.getn(SimpleHealAI.Spells.Lesser)
-    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r Found " .. total .. " healing spells.")
+    -- DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r Found " .. total .. " healing spells.")
     SimpleHealAI.Ready = (total > 0)
 end
 
@@ -503,8 +505,9 @@ function SimpleHealAI:RefreshConfig()
     
     SimpleHealAI_ModeEff:SetText(healMode == 1 and "|cff00ff00Eff|r" or "Eff")
     SimpleHealAI_ModeSmart:SetText(healMode == 2 and "|cff00ff00Smart|r" or "Smart")
-    SimpleHealAI_ModeLOS:SetText(useLOS and "|cff00ff00On|r" or "Off")
-    SimpleHealAI_ModeCleanse:SetText(useCleanse and "|cff00ff00On|r" or "Off")
+    
+    SimpleHealAI_ModeLOSCheck:SetChecked(useLOS)
+    SimpleHealAI_ModeCleanseCheck:SetChecked(useCleanse)
     
     SimpleHealAI_MsgOff:SetText(msgMode == 0 and "|cff00ff00Off|r" or "Off")
     SimpleHealAI_MsgAll:SetText(msgMode == 1 and "|cff00ff00All|r" or "All")
