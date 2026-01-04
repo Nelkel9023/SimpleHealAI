@@ -13,17 +13,16 @@
 
 SimpleHealAI = {}
 SimpleHealAI.Ready = false
+SimpleHealAI.Spells = { Wave = {}, Lesser = {} }
 SimpleHealAI.ExtendedAPI = nil -- nil = unchecked, true/false after check
 SimpleHealAI.LastAnnounce = nil  -- For spam reduction
 
 --[[ ================================================================
-    SUPERWOW DETECTION - Enhanced range/LoS when available
+    SUPERWOW / EXTENDED API DETECTION
 ================================================================ ]]
 
 function SimpleHealAI:HasExtendedAPI()
-    if SimpleHealAI.ExtendedAPI ~= nil then
-        return SimpleHealAI.ExtendedAPI
-    end
+    if SimpleHealAI.ExtendedAPI ~= nil then return SimpleHealAI.ExtendedAPI end
     
     local hasIt = (SUPERWOW_VERSION ~= nil) or 
                   (type(UnitXP) == "function") or 
@@ -31,11 +30,9 @@ function SimpleHealAI:HasExtendedAPI()
                   (type(SpellInfo) == "function")
     
     SimpleHealAI.ExtendedAPI = hasIt
-    
     if hasIt then
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r Extended API (SuperWoW/UnitXP) detected.")
     end
-    
     return hasIt
 end
 
@@ -59,7 +56,6 @@ function SimpleHealAI:GetUnitDistance(unit)
             return math.sqrt(dx*dx + dy*dy + dz*dz)
         end
     end
-    
     return nil
 end
 
@@ -68,9 +64,7 @@ function SimpleHealAI:IsInLineOfSight(unit)
     if type(UnitXP) ~= "function" then return nil end
     
     local ok, los = pcall(function() return UnitXP(unit, "los") end)
-    if ok and los ~= nil then
-        return los
-    end
+    if ok and los ~= nil then return los end
     return nil
 end
 
@@ -124,8 +118,10 @@ function SimpleHealAI.SlashHandler(msg)
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r Commands:")
         DEFAULT_CHAT_FRAME:AddMessage("  /heal - Auto-heal")
         DEFAULT_CHAT_FRAME:AddMessage("  /heal config - Settings")
+        DEFAULT_CHAT_FRAME:AddMessage("  /heal scan - Manual spell scan")
     elseif msg == "scan" then
         SimpleHealAI:ScanSpells()
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r Spell scanning complete.")
     elseif msg == "config" or msg == "options" then
         SimpleHealAI:ToggleConfig()
     else
@@ -134,15 +130,14 @@ function SimpleHealAI.SlashHandler(msg)
 end
 
 --[[ ================================================================
-    SPELL SCANNING - Finds all healing spells in spellbook
+    SPELL SCANNING
 ================================================================ ]]
 
 function SimpleHealAI:ScanSpells()
-    SimpleHealAI.Spells = {Wave = {}, Lesser = {}}
+    SimpleHealAI.Spells = { Wave = {}, Lesser = {} }
     
     local _, class = UnitClass("player")
     local validClasses = {SHAMAN=1, PRIEST=1, PALADIN=1, DRUID=1}
-    
     if not validClasses[class] then return end
     
     local hasSpellInfo = type(SpellInfo) == "function"
@@ -153,22 +148,24 @@ function SimpleHealAI:ScanSpells()
         
         local spellType = SimpleHealAI:GetSpellType(spellName, class)
         if spellType then
+            local mana, minH, maxH, range
+            
             if hasSpellInfo then
                 local _, _, _, _, maxR = SpellInfo(i)
                 range = (maxR and maxR > 0) and maxR or 40
-                mana, minHeal, maxHeal = SimpleHealAI:ParseSpellTooltip(i)
+                mana, minH, maxH = SimpleHealAI:ParseSpellTooltip(i)
             else
-                mana, minHeal, maxHeal = SimpleHealAI:ParseSpellTooltip(i)
+                mana, minH, maxH = SimpleHealAI:ParseSpellTooltip(i)
                 range = 40
             end
 
             local rankNum = SimpleHealAI:ExtractRank(spellRank)
             
-            if mana and minHeal and maxHeal then
-                local avgHeal = (minHeal + maxHeal) / 2
+            if mana and minH and maxH then
+                local avgHeal = (minH + maxH) / 2
                 table.insert(SimpleHealAI.Spells[spellType], {
                     id = i, name = spellName, rank = rankNum, mana = mana,
-                    avg = avgHeal, min = minHeal, max = maxHeal, 
+                    avg = avgHeal, min = minH, max = maxH, 
                     hpm = avgHeal / mana, range = range
                 })
             end
@@ -179,7 +176,7 @@ function SimpleHealAI:ScanSpells()
     table.sort(SimpleHealAI.Spells.Wave, function(a,b) return a.rank < b.rank end)
     table.sort(SimpleHealAI.Spells.Lesser, function(a,b) return a.rank < b.rank end)
     
-    local total = table.getn(SimpleHealAI.Spells.Wave) + table.getn(SimpleHealAI.Spells.Lesser) + table.getn(SimpleHealAI.Spells.Cleanse)
+    local total = table.getn(SimpleHealAI.Spells.Wave) + table.getn(SimpleHealAI.Spells.Lesser)
     SimpleHealAI.Ready = (total > 0)
 end
 
@@ -194,8 +191,8 @@ function SimpleHealAI:GetSpellType(name, class)
         if string.find(n, "greater heal") or n == "heal" or string.find(n, "lesser heal") then return "Wave" end
     elseif class == "PALADIN" then
         if string.find(n, "flash of light") then return "Lesser" end
-        if string.find(n, "holy shock") then return "Lesser" end 
         if string.find(n, "holy light") then return "Wave" end
+        if string.find(n, "holy shock") then return "Lesser" end
     elseif class == "DRUID" then
         if string.find(n, "regrowth") then return "Lesser" end
         if string.find(n, "healing touch") then return "Wave" end
@@ -245,27 +242,24 @@ function SimpleHealAI:ParseSpellTooltip(spellID)
 end
 
 --[[ ================================================================
-    HEALING LOGIC - Find target, pick spell, cast
+    HEALING LOGIC
 ================================================================ ]]
 
 function SimpleHealAI:DoHeal()
     if not SimpleHealAI.Ready then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHealAI]|r No spells found. Try /heal scan")
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHealAI]|r No spells found. Use /heal scan")
         return
     end
     
     local target = SimpleHealAI:FindBestTarget()
     if not target then
-        if not useFast then DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r No one needs healing.") end
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r No one needs healing.")
         return
     end
     
     local deficit = target.max - target.current
     local spellList = SimpleHealAI.Spells.Wave
-    -- Fallback to Lesser if Wave is empty (or vice versa if we wanted, but keeping it simple)
-    if table.getn(spellList) == 0 then
-        spellList = SimpleHealAI.Spells.Lesser
-    end
+    if table.getn(spellList) == 0 then spellList = SimpleHealAI.Spells.Lesser end
     
     if table.getn(spellList) == 0 then
         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHealAI]|r No healing spells available!")
@@ -303,28 +297,24 @@ function SimpleHealAI:FindBestTarget()
     local threshold = (SimpleHealAI_Saved and SimpleHealAI_Saved.Threshold or 90) / 100
     
     SimpleHealAI:AddCandidate(candidates, "player")
-    
     local numParty = GetNumPartyMembers()
     if numParty > 0 then
         for i = 1, numParty do SimpleHealAI:AddCandidate(candidates, "party" .. i) end
     end
-    
     local numRaid = GetNumRaidMembers()
     if numRaid > 0 then
         for i = 1, numRaid do SimpleHealAI:AddCandidate(candidates, "raid" .. i) end
     end
     
-    local valid = {}
+    local best = nil
     for _, c in ipairs(candidates) do
-        if c.ratio < threshold then table.insert(valid, c) end
-    end
-    
-    for _, c in ipairs(valid) do
-        if SimpleHealAI:CanReach(c.unit) then 
-            return c 
+        if c.ratio < threshold and SimpleHealAI:CanReach(c.unit) then
+            if not best or c.ratio < best.ratio then
+                best = c
+            end
         end
     end
-    return nil
+    return best
 end
 
 function SimpleHealAI:AddCandidate(list, unit)
@@ -332,7 +322,6 @@ function SimpleHealAI:AddCandidate(list, unit)
     if UnitIsPlayer(unit) and not UnitIsConnected(unit) then return end
     if not UnitIsFriend("player", unit) then return end
 
-    -- Avoid duplicates
     for _, c in ipairs(list) do
         if UnitIsUnit(c.unit, unit) then return end
     end
@@ -350,33 +339,34 @@ function SimpleHealAI:AddCandidate(list, unit)
 end
 
 function SimpleHealAI:CanReach(unit)
-    if not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return false, "Dead/Invalid" end
+    if not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return false end
     if UnitIsUnit(unit, "player") then return true end
     
+    -- 1. Try Extended API distance
     local dist = SimpleHealAI:GetUnitDistance(unit)
     
-    -- LOS Check if enabled
+    -- 2. LOS Check
     if SimpleHealAI_Saved and SimpleHealAI_Saved.UseLOS then
-        if SimpleHealAI:IsInLineOfSight(unit) == false then return false, "Line of Sight" end
+        if SimpleHealAI:IsInLineOfSight(unit) == false then return false end
     end
     
-    -- Range Check
+    -- 3. Range Verification
     local testSpell = nil
     if SimpleHealAI.Spells.Wave[1] then testSpell = SimpleHealAI.Spells.Wave[1]
     elseif SimpleHealAI.Spells.Lesser[1] then testSpell = SimpleHealAI.Spells.Lesser[1] end
     
     if dist then
         local maxR = (testSpell and testSpell.range) and testSpell.range or 40
-        if dist > maxR then return false, "Out of Range ("..math.floor(dist).."y)" end
+        if dist > maxR then return false end
     end
     
     if testSpell and IsSpellInRange then
         if IsSpellInRange(testSpell.id, BOOKTYPE_SPELL, unit) == 0 then
-            return false, "Out of Range"
+            return false
         end
     elseif not dist then
         if not CheckInteractDistance(unit, 4) then
-            return false, "Out of Range (>28y)"
+            return false
         end
     end
 
@@ -395,7 +385,9 @@ function SimpleHealAI:PickBestRank(spellList, deficit)
     end
     if table.getn(affordable) == 0 then return nil end
     
-    if mode == 1 then
+    table.sort(affordable, function(a,b) return a.rank < b.rank end)
+    
+    if mode == 1 then -- Efficient
         local bestSpell, bestEfficiency = nil, -1
         for _, spell in ipairs(affordable) do
             local eff = math.min(spell.avg, deficit) / spell.mana
@@ -405,8 +397,7 @@ function SimpleHealAI:PickBestRank(spellList, deficit)
             end
         end
         return bestSpell
-    else
-        table.sort(affordable, function(a,b) return a.rank < b.rank end)
+    else -- Smart (smallest rank covering deficit)
         for _, spell in ipairs(affordable) do
             if spell.avg >= deficit then return spell end
         end
@@ -415,7 +406,7 @@ function SimpleHealAI:PickBestRank(spellList, deficit)
 end
 
 --[[ ================================================================
-    TARGET SAVE/RESTORE
+    TARGET UTILITIES
 ================================================================ ]]
 
 function SimpleHealAI:GetTargetInfo()
@@ -423,14 +414,13 @@ function SimpleHealAI:GetTargetInfo()
     local info = { name = UnitName("target"), unit = nil }
     if UnitIsUnit("target", "player") then
         info.unit = "player"
-    else
+    elseif UnitInParty("target") then
         for i = 1, GetNumPartyMembers() do
             if UnitIsUnit("target", "party" .. i) then info.unit = "party" .. i break end
         end
-        if not info.unit then
-            for i = 1, GetNumRaidMembers() do
-                if UnitIsUnit("target", "raid" .. i) then info.unit = "raid" .. i break end
-            end
+    elseif UnitInRaid("target") then
+        for i = 1, GetNumRaidMembers() do
+            if UnitIsUnit("target", "raid" .. i) then info.unit = "raid" .. i break end
         end
     end
     return info
@@ -446,7 +436,7 @@ function SimpleHealAI:RestoreTarget(info)
 end
 
 --[[ ================================================================
-    CONFIG UI
+    UI / TAB LOGIC
 ================================================================ ]]
 
 function SimpleHealAI:ShowTooltip(text)
@@ -456,18 +446,22 @@ function SimpleHealAI:ShowTooltip(text)
 end
 
 function SimpleHealAI:ToggleConfig()
-    if SimpleHealAI_ConfigFrame:IsVisible() then SimpleHealAI_ConfigFrame:Hide() else SimpleHealAI_ConfigFrame:Show() end
+    if SimpleHealAI_ConfigFrame:IsVisible() then 
+        SimpleHealAI_ConfigFrame:Hide() 
+    else 
+        SimpleHealAI_ConfigFrame:Show() 
+    end
 end
 
 function SimpleHealAI:RefreshConfig()
-    local msgMode = SimpleHealAI_Saved and SimpleHealAI_Saved.MsgMode or 2
-    local healMode = SimpleHealAI_Saved and SimpleHealAI_Saved.HealMode or 1
-    local thresh = SimpleHealAI_Saved and SimpleHealAI_Saved.Threshold or 90
-    local useLOS = SimpleHealAI_Saved and SimpleHealAI_Saved.UseLOS
+    if not SimpleHealAI_Saved then SimpleHealAI:LoadSettings() end
+    local msgMode = SimpleHealAI_Saved.MsgMode
+    local healMode = SimpleHealAI_Saved.HealMode
+    local thresh = SimpleHealAI_Saved.Threshold
+    local useLOS = SimpleHealAI_Saved.UseLOS
     
     SimpleHealAI_ModeEff:SetText(healMode == 1 and "|cff00ff00Eff|r" or "Eff")
     SimpleHealAI_ModeSmart:SetText(healMode == 2 and "|cff00ff00Smart|r" or "Smart")
-    
     SimpleHealAI_ModeLOSCheck:SetChecked(useLOS)
     
     SimpleHealAI_MsgOff:SetText(msgMode == 0 and "|cff00ff00Off|r" or "Off")
@@ -479,27 +473,22 @@ function SimpleHealAI:RefreshConfig()
 end
 
 function SimpleHealAI:SetHealMode(mode)
-    if not SimpleHealAI_Saved then SimpleHealAI_Saved = {} end
     SimpleHealAI_Saved.HealMode = mode
     SimpleHealAI:RefreshConfig()
-    local names = {[1]="Efficient", [2]="Smart"}
-    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r Mode: " .. (names[mode] or "?"))
 end
 
 function SimpleHealAI:ToggleLOS()
-    if not SimpleHealAI_Saved then SimpleHealAI_Saved = {} end
     SimpleHealAI_Saved.UseLOS = not SimpleHealAI_Saved.UseLOS
     SimpleHealAI:RefreshConfig()
 end
 
 function SimpleHealAI:SetMsgMode(mode)
-    if not SimpleHealAI_Saved then SimpleHealAI_Saved = {} end
     SimpleHealAI_Saved.MsgMode = mode
     SimpleHealAI:RefreshConfig()
 end
 
 function SimpleHealAI:OnThresholdChange(val)
-    if not SimpleHealAI_Saved then SimpleHealAI_Saved = {} end
+    if not SimpleHealAI_Saved then return end
     val = math.floor(val)
     SimpleHealAI_Saved.Threshold = val
     getglobal("SimpleHealAI_ThreshSliderText"):SetText(val .. "%")
