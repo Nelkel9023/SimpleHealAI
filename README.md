@@ -12,7 +12,6 @@
 - **🎯 Smart Target Selection**: Automatically prioritizes the lowest health party or raid member.
 - **⚡ Direct Casting**: Casts spells directly via SuperAPI—no screen flickering or target loss.
 - **🧪 Advanced Range & LoS**: Uses 3D distance and Line of Sight data to ensure every cast is valid.
-- **✨ Auto-Dispel**: Intelligently cleanses Magic, Poison, Disease, and Curse based on your class.
 - **📊 Dynamic Ranking**: 
   - **Efficient Mode**: Maximizes Healing-per-Mana (HPM).
   - **Smart Mode**: Covers the exact health deficit to prevent overhealing.
@@ -22,8 +21,7 @@
 
 | Command | Description |
 | :--- | :--- |
-| `/heal` | Smart healing/cleansing action. |
-| `/heal fast` | Emergency heal (Lesser Healing Wave, Flash Heal, etc.). |
+| `/heal` | Smart healing action. |
 | `/heal config` | Open the configuration menu. |
 | `/heal scan` | Rescan spellbook for new ranks. |
 
@@ -31,7 +29,6 @@
 
 - **Heal Mode**: Toggle between **Efficient** (Mana Conservation) and **Smart** (Max Output).
 - **Line of Sight**: Enable/Disable LoS checks for targets.
-- **Dispel**: Toggle automatic debuff cleansing.
 - **Threshold**: Set the % HP at which the AI begins its work (default 90%).
 
 ---
