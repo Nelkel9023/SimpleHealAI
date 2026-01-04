@@ -16,6 +16,7 @@ SimpleHealAI.Ready = false
 SimpleHealAI.Spells = { Wave = {}, Lesser = {} }
 SimpleHealAI.ExtendedAPI = nil -- nil = unchecked, true/false after check
 SimpleHealAI.LastAnnounce = nil  -- For spam reduction
+SimpleHealAI.LastManaNotify = 0  -- Time of last /oom emote
 
 --[[ ================================================================
     SUPERWOW / EXTENDED API DETECTION
@@ -76,6 +77,8 @@ function SimpleHealAI:OnLoad()
     SimpleHealAI_Frame:RegisterEvent("PLAYER_ENTERING_WORLD")
     SimpleHealAI_Frame:RegisterEvent("SPELLS_CHANGED")
     SimpleHealAI_Frame:RegisterEvent("VARIABLES_LOADED")
+    SimpleHealAI_Frame:RegisterEvent("UNIT_MANA")
+    SimpleHealAI_Frame:RegisterEvent("UNIT_MAXMANA")
     
     SlashCmdList["SIMPLEHEALAI"] = SimpleHealAI.SlashHandler
     SLASH_SIMPLEHEALAI1 = "/heal"
@@ -90,6 +93,8 @@ function SimpleHealAI:OnEvent(event)
         SimpleHealAI:LoadSettings()
     elseif event == "PLAYER_ENTERING_WORLD" or event == "SPELLS_CHANGED" then
         SimpleHealAI:ScanSpells()
+    elseif event == "UNIT_MANA" or event == "UNIT_MAXMANA" then
+        if arg1 == "player" then SimpleHealAI:CheckManaNotify() end
     end
 end
 
@@ -99,6 +104,8 @@ function SimpleHealAI:LoadSettings()
     if SimpleHealAI_Saved.Threshold == nil then SimpleHealAI_Saved.Threshold = 90 end
     if SimpleHealAI_Saved.HealMode == nil then SimpleHealAI_Saved.HealMode = 1 end
     if SimpleHealAI_Saved.UseLOS == nil then SimpleHealAI_Saved.UseLOS = true end
+    if SimpleHealAI_Saved.LowManaThreshold == nil then SimpleHealAI_Saved.LowManaThreshold = 30 end
+    if SimpleHealAI_Saved.EnableLowManaNotify == nil then SimpleHealAI_Saved.EnableLowManaNotify = true end
 end
 
 function SimpleHealAI:Announce(targetName, spellName, rank)
@@ -274,6 +281,36 @@ function SimpleHealAI:DoHeal()
     
     SimpleHealAI:Cast(spell, target.unit)
     SimpleHealAI:Announce(target.name, spell.name, spell.rank)
+end
+
+function SimpleHealAI:CheckManaNotify()
+    if not SimpleHealAI_Saved or not SimpleHealAI_Saved.EnableLowManaNotify then return end
+    
+    local _, class = UnitClass("player")
+    local mana, maxMana
+
+    if class == "DRUID" then
+        local _, casterMana = UnitMana("player")
+        local _, casterMaxMana = UnitManaMax("player")
+        mana = casterMana
+        maxMana = casterMaxMana
+    else
+        mana = UnitMana("player")
+        maxMana = UnitManaMax("player")
+    end
+
+    if not maxMana or maxMana == 0 then return end
+    
+    local manaPercent = (mana / maxMana) * 100
+    local now = GetTime()
+    
+    if manaPercent <= SimpleHealAI_Saved.LowManaThreshold then
+        -- 10s frequency limit to prevent spam
+        if now - SimpleHealAI.LastManaNotify >= 10 then
+            DoEmote("OOM")
+            SimpleHealAI.LastManaNotify = now
+        end
+    end
 end
 
 function SimpleHealAI:Cast(spell, unit)
@@ -470,6 +507,10 @@ function SimpleHealAI:RefreshConfig()
     
     SimpleHealAI_ThreshSlider:SetValue(thresh)
     getglobal("SimpleHealAI_ThreshSliderText"):SetText(thresh .. "%")
+    
+    SimpleHealAI_LowManaCheck:SetChecked(SimpleHealAI_Saved.EnableLowManaNotify)
+    SimpleHealAI_LowManaSlider:SetValue(SimpleHealAI_Saved.LowManaThreshold)
+    getglobal("SimpleHealAI_LowManaSliderText"):SetText(SimpleHealAI_Saved.LowManaThreshold .. "%")
 end
 
 function SimpleHealAI:SetHealMode(mode)
@@ -492,4 +533,16 @@ function SimpleHealAI:OnThresholdChange(val)
     val = math.floor(val)
     SimpleHealAI_Saved.Threshold = val
     getglobal("SimpleHealAI_ThreshSliderText"):SetText(val .. "%")
+end
+
+function SimpleHealAI:ToggleLowManaNotify()
+    SimpleHealAI_Saved.EnableLowManaNotify = not SimpleHealAI_Saved.EnableLowManaNotify
+    SimpleHealAI:RefreshConfig()
+end
+
+function SimpleHealAI:OnLowManaThresholdChange(val)
+    if not SimpleHealAI_Saved then return end
+    val = math.floor(val)
+    SimpleHealAI_Saved.LowManaThreshold = val
+    getglobal("SimpleHealAI_LowManaSliderText"):SetText(val .. "%")
 end

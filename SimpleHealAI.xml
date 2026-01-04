@@ -14,7 +14,7 @@
 
     <!-- Config frame -->
     <Frame name="SimpleHealAI_ConfigFrame" toplevel="true" movable="true" enableMouse="true" frameStrata="DIALOG" hidden="true">
-        <Size><AbsDimension x="240" y="320"/></Size>
+        <Size><AbsDimension x="240" y="420"/></Size>
         <Anchors><Anchor point="CENTER"/></Anchors>
         <Backdrop bgFile="Interface\DialogFrame\UI-DialogBox-Background" edgeFile="Interface\DialogFrame\UI-DialogBox-Border" tile="true">
             <BackgroundInsets><AbsInset left="11" right="12" top="12" bottom="11"/></BackgroundInsets>
@@ -56,7 +56,7 @@
                 </Scripts>
             </Button>
 
-            <!-- Toggles (LOS & Cleanse) using CheckButtons -->
+            <!-- Toggles (LOS) using CheckButtons -->
             <CheckButton name="SimpleHealAI_ModeLOSCheck" inherits="OptionsCheckButtonTemplate">
                 <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-100"/></Offset></Anchor></Anchors>
                 <Scripts>
@@ -111,6 +111,32 @@
                 <Scripts>
                     <OnValueChanged>SimpleHealAI:OnThresholdChange(this:GetValue());</OnValueChanged>
                     <OnEnter>SimpleHealAI:ShowTooltip("Heal units below this HP percentage.");</OnEnter>
+                    <OnLeave>GameTooltip:Hide();</OnLeave>
+                </Scripts>
+            </Slider>
+
+            <!-- Low Mana Notification -->
+            <CheckButton name="SimpleHealAI_LowManaCheck" inherits="OptionsCheckButtonTemplate">
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-255"/></Offset></Anchor></Anchors>
+                <Scripts>
+                    <OnClick>SimpleHealAI:ToggleLowManaNotify();</OnClick>
+                    <OnEnter>SimpleHealAI:ShowTooltip("Trigger /oom emote when mana is low.");</OnEnter>
+                    <OnLeave>GameTooltip:Hide();</OnLeave>
+                </Scripts>
+            </CheckButton>
+            <FontString name="SimpleHealAI_LowManaLabel" inherits="GameFontNormal" text="Low Mana Emote">
+                <Anchors><Anchor point="LEFT" relativeTo="SimpleHealAI_LowManaCheck" relativePoint="RIGHT"><Offset><AbsDimension x="5" y="0"/></Offset></Anchor></Anchors>
+            </FontString>
+
+            <FontString name="SimpleHealAI_LowManaThreshLabel" inherits="GameFontNormal" text="Mana Threshold:">
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-290"/></Offset></Anchor></Anchors>
+            </FontString>
+            <Slider name="SimpleHealAI_LowManaSlider" inherits="OptionsSliderTemplate" minValue="5" maxValue="50" valueStep="5">
+                <Size><AbsDimension x="200" y="16"/></Size>
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-313"/></Offset></Anchor></Anchors>
+                <Scripts>
+                    <OnValueChanged>SimpleHealAI:OnLowManaThresholdChange(this:GetValue());</OnValueChanged>
+                    <OnEnter>SimpleHealAI:ShowTooltip("Emote threshold percentage.");</OnEnter>
                     <OnLeave>GameTooltip:Hide();</OnLeave>
                 </Scripts>
             </Slider>

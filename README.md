@@ -16,6 +16,7 @@
   - **Efficient Mode**: Maximizes Healing-per-Mana (HPM).
   - **Smart Mode**: Covers the exact health deficit to prevent overhealing.
 - **🖥️ Premium Config UI**: Simple, Blizzard-style menu to customize your healing behavior.
+- **📢 Low Mana Notifier**: Automatically triggers an `/oom` emote when your mana drops below a configurable threshold.
 
 ## ⌨️ Commands
 
@@ -30,6 +31,7 @@
 - **Heal Mode**: Toggle between **Efficient** (Mana Conservation) and **Smart** (Max Output).
 - **Line of Sight**: Enable/Disable LoS checks for targets.
 - **Threshold**: Set the % HP at which the AI begins its work (default 90%).
+- **Low Mana Emote**: Toggle and set the threshold for automatic OOM alerts.
 
 ---
 
