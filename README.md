@@ -1,44 +1,38 @@
-# SimpleHealAI 💉
+# SimpleHealAI
 
-**SimpleHealAI** is a premium, lightweight auto-targeting and auto-ranking healing assistant for World of Warcraft 1.12.1. Designed for efficiency and visual clarity, it leverages modern API extensions to provide a "smart" healing experience.
+SimpleHealAI is a lightweight healing assistant for World of Warcraft 1.12.1. It provides automated targeting and spell rank selection to optimize healing efficiency and output.
 
-> [!IMPORTANT]
-> **SuperAPI (SuperWoW)** and **UnitXP** are **MANDATORY** dependencies. They enable direct casting (no target switching), precise range detection, and Line of Sight checks.
+## Requirements
 
----
+The following dependencies are required for core functionality:
 
-## ✨ Features
+* **SuperWoW (SuperAPI)**: Enables direct casting without target switching.
+* **UnitXP (SP3)**: Provides accurate line-of-sight and 3D distance calculations.
 
-- **🎯 Smart Target Selection**: Automatically prioritizes the lowest health party or raid member.
-- **⚡ Direct Casting**: Casts spells directly via SuperAPI—no screen flickering or target loss.
-- **🧪 Advanced Range & LoS**: Uses 3D distance and Line of Sight data to ensure every cast is valid.
-- **📊 Dynamic Ranking**: 
-  - **Efficient Mode**: Maximizes Healing-per-Mana (HPM).
-  - **Smart Mode**: Covers the exact health deficit to prevent overhealing.
-- **🖥️ Premium Config UI**: Simple, Blizzard-style menu to customize your healing behavior.
-- **📢 Low Mana Notifier**: Automatically triggers an `/oom` emote when your mana drops below a configurable threshold.
+## Core Features
 
-## ⌨️ Commands
+* **Targeting**: Automatically selects the lowest health member in your party or raid who is within range and line of sight.
+* **Direct Casting**: Utilizes the SuperWoW API to cast spells directly on targets, preserving your current selection.
+* **Intelligent Ranking**:
+    * **Efficient Mode**: Selects ranks based on the best healing-per-mana ratio.
+    * **Smart Mode**: Selects the smallest rank required to cover the target's health deficit.
+* **Mana Monitoring**: Includes a low-mana notifier that triggers an emote and visual alert at a configurable threshold.
 
-| Command | Description |
-| :--- | :--- |
-| `/heal` | Smart healing action. |
-| `/heal config` | Open the configuration menu. |
-| `/heal scan` | Rescan spellbook for new ranks. |
+## Commands
 
-## ⚙️ Settings
+* `/heal`: Performs the smart healing action.
+* `/heal config`: Opens the configuration menu.
+* `/heal scan`: Rescans the spellbook for updated ranks.
 
-- **Heal Mode**: Toggle between **Efficient** (Mana Conservation) and **Smart** (Max Output).
-- **Line of Sight**: Enable/Disable LoS checks for targets.
-- **Threshold**: Set the % HP at which the AI begins its work (default 90%).
-- **Low Mana Emote**: Toggle and set the threshold for automatic OOM alerts.
+## Settings
 
----
+* **Heal Mode**: Switch between Efficient and Smart ranking logic.
+* **Line of Sight**: Toggle whether line-of-sight checks are performed before casting.
+* **Heal Threshold**: Configure the health percentage at which the assistant begins healing.
+* **Low Mana Emote**: Toggle and set the threshold for automatic mana notifications.
 
-## 🚀 Installation
+## Installation
 
-1. Install **SuperAPI** and **UnitXP** addons.
-2. Place the `SimpleHealAI` folder in your `Interface\AddOns` directory.
-3. Restart WoW or `/reload`.
-
-*Created for players who want to focus on the fight, not the health bars.*
+1. Ensure SuperWoW and UnitXP are installed.
+2. Place the `SimpleHealAI` folder into your `Interface\AddOns` directory.
+3. Restart the game client or reload the UI.
