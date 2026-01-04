@@ -30,6 +30,13 @@ function SimpleHealAI:HasExtendedAPI()
                   (type(UnitPosition) == "function") or
                   (type(SpellInfo) == "function")
     
+    -- Check for UnitXP SP3 specifically for the new function signatures
+    local hasXP3 = false
+    if type(UnitXP) == "function" then
+        hasXP3 = pcall(UnitXP, "nop", "nop")
+    end
+    SimpleHealAI.hasXP3 = hasXP3
+    
     SimpleHealAI.ExtendedAPI = hasIt
     if hasIt then
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r Extended API (SuperWoW/UnitXP) detected.")
@@ -40,8 +47,13 @@ end
 function SimpleHealAI:GetUnitDistance(unit)
     if not SimpleHealAI:HasExtendedAPI() then return nil end
     
-    -- Try UnitXP first (most accurate, factors in combat reach)
-    if type(UnitXP) == "function" then
+    -- Try UnitXP SP3 distanceBetween first (most accurate)
+    if SimpleHealAI.hasXP3 then
+        local ok, dist = pcall(function() return UnitXP("distanceBetween", "player", unit) end)
+        if ok and dist and type(dist) == "number" and dist < 500 then
+            return dist
+        end
+    elseif type(UnitXP) == "function" then -- Legacy UnitXP fallback
         local ok, dist = pcall(function() return UnitXP(unit, "range") end)
         if ok and dist and type(dist) == "number" and dist < 500 then
             return dist
@@ -62,10 +74,15 @@ end
 
 function SimpleHealAI:IsInLineOfSight(unit)
     if not SimpleHealAI:HasExtendedAPI() then return nil end
-    if type(UnitXP) ~= "function" then return nil end
-    
-    local ok, los = pcall(function() return UnitXP(unit, "los") end)
-    if ok and los ~= nil then return los end
+    if SimpleHealAI.hasXP3 then
+        local ok, los = pcall(function() return UnitXP("inSight", "player", unit) end)
+        if ok and los ~= nil then return los end
+    elseif type(UnitXP) == "function" then -- Legacy UnitXP fallback
+        local ok, los = pcall(function() return UnitXP(unit, "los") end)
+        if ok and los ~= nil then
+            return los
+        end
+    end
     return nil
 end
 
