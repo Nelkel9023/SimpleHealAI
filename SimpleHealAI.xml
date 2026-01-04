@@ -69,25 +69,17 @@
                 <Anchors><Anchor point="LEFT" relativeTo="SimpleHealAI_ModeLOSCheck" relativePoint="RIGHT"><Offset><AbsDimension x="5" y="0"/></Offset></Anchor></Anchors>
             </FontString>
 
-            <CheckButton name="SimpleHealAI_ModeCleanseCheck" inherits="OptionsCheckButtonTemplate">
-                <Anchors><Anchor point="TOPLEFT" relativeTo="SimpleHealAI_ModeLOSCheck" relativePoint="BOTTOMLEFT"><Offset><AbsDimension x="0" y="-5"/></Offset></Anchor></Anchors>
-                <Scripts>
-                    <OnClick>SimpleHealAI:ToggleCleanse();</OnClick>
-                    <OnEnter>SimpleHealAI:ShowTooltip("Auto-dispel Magic/Poison/Curse/Disease.");</OnEnter>
-                    <OnLeave>GameTooltip:Hide();</OnLeave>
-                </Scripts>
-            </CheckButton>
-            <FontString name="SimpleHealAI_ModeCleanseLabel" inherits="GameFontNormal" text="Auto-Dispel Debuffs">
-                <Anchors><Anchor point="LEFT" relativeTo="SimpleHealAI_ModeCleanseCheck" relativePoint="RIGHT"><Offset><AbsDimension x="5" y="0"/></Offset></Anchor></Anchors>
+            <FontString name="SimpleHealAI_ModeLOSLabel" inherits="GameFontNormal" text="Line of Sight Check">
+                <Anchors><Anchor point="LEFT" relativeTo="SimpleHealAI_ModeLOSCheck" relativePoint="RIGHT"><Offset><AbsDimension x="5" y="0"/></Offset></Anchor></Anchors>
             </FontString>
 
             <!-- Message Mode -->
             <FontString name="SimpleHealAI_MsgLabel" inherits="GameFontNormal" text="Chat Messages:">
-                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-180"/></Offset></Anchor></Anchors>
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-140"/></Offset></Anchor></Anchors>
             </FontString>
             <Button name="SimpleHealAI_MsgOff" inherits="UIPanelButtonTemplate" text="Off">
                 <Size><AbsDimension x="65" y="24"/></Size>
-                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-196"/></Offset></Anchor></Anchors>
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-156"/></Offset></Anchor></Anchors>
                 <Scripts>
                     <OnClick>SimpleHealAI:SetMsgMode(0);</OnClick>
                     <OnEnter>SimpleHealAI:ShowTooltip("No chat messages.");</OnEnter>
@@ -115,11 +107,11 @@
 
             <!-- Threshold slider -->
             <FontString name="SimpleHealAI_ThreshLabel" inherits="GameFontNormal" text="Heal Threshold:">
-                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-235"/></Offset></Anchor></Anchors>
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-195"/></Offset></Anchor></Anchors>
             </FontString>
             <Slider name="SimpleHealAI_ThreshSlider" inherits="OptionsSliderTemplate" minValue="50" maxValue="99" valueStep="5">
                 <Size><AbsDimension x="200" y="16"/></Size>
-                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-258"/></Offset></Anchor></Anchors>
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-218"/></Offset></Anchor></Anchors>
                 <Scripts>
                     <OnValueChanged>SimpleHealAI:OnThresholdChange(this:GetValue());</OnValueChanged>
                     <OnEnter>SimpleHealAI:ShowTooltip("Heal units below this HP percentage.");</OnEnter>

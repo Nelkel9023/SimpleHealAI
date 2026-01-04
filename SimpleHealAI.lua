@@ -13,47 +13,60 @@
 
 SimpleHealAI = {}
 SimpleHealAI.Spells = {}  -- {Wave = {}, Lesser = {}}
-SimpleHealAI.CleanseSpells = {} -- {Magic = id, Poison = id, etc}
 SimpleHealAI.Ready = false
-SimpleHealAI.SuperWoW = nil  -- nil = unchecked, true/false after check
+SimpleHealAI.ExtendedAPI = nil -- nil = unchecked, true/false after check
 SimpleHealAI.LastAnnounce = nil  -- For spam reduction
 
 --[[ ================================================================
     SUPERWOW DETECTION - Enhanced range/LoS when available
 ================================================================ ]]
 
-function SimpleHealAI:CheckSuperWoW()
-    if SimpleHealAI.SuperWoW ~= nil then
-        return SimpleHealAI.SuperWoW
+function SimpleHealAI:HasExtendedAPI()
+    if SimpleHealAI.ExtendedAPI ~= nil then
+        return SimpleHealAI.ExtendedAPI
     end
     
     local hasIt = (SUPERWOW_VERSION ~= nil) or 
                   (type(UnitXP) == "function") or 
-                  (type(UnitPosition) == "function")
+                  (type(UnitPosition) == "function") or
+                  (type(SpellInfo) == "function")
     
-    SimpleHealAI.SuperWoW = hasIt
+    SimpleHealAI.ExtendedAPI = hasIt
     
     if hasIt then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r SuperWoW detected - enhanced range/LoS/DirectCast active")
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r Extended API (SuperWoW/UnitXP) detected.")
     end
     
     return hasIt
 end
 
 function SimpleHealAI:GetUnitDistance(unit)
-    if not SimpleHealAI:CheckSuperWoW() then return nil end
-    if not UnitXP then return nil end
+    if not SimpleHealAI:HasExtendedAPI() then return nil end
     
-    local ok, dist = pcall(function() return UnitXP(unit, "range") end)
-    if ok and dist and type(dist) == "number" and dist < 500 then
-        return dist
+    -- Try UnitXP first (most accurate, factors in combat reach)
+    if type(UnitXP) == "function" then
+        local ok, dist = pcall(function() return UnitXP(unit, "range") end)
+        if ok and dist and type(dist) == "number" and dist < 500 then
+            return dist
+        end
     end
+    
+    -- Fallback to UnitPosition (manual 3D distance)
+    if type(UnitPosition) == "function" then
+        local x1, y1, z1 = UnitPosition("player")
+        local x2, y2, z2 = UnitPosition(unit)
+        if x1 and x2 then
+            local dx, dy, dz = x1-x2, y1-y2, z1-z2
+            return math.sqrt(dx*dx + dy*dy + dz*dz)
+        end
+    end
+    
     return nil
 end
 
 function SimpleHealAI:IsInLineOfSight(unit)
-    if not SimpleHealAI:CheckSuperWoW() then return nil end
-    if not UnitXP then return nil end
+    if not SimpleHealAI:HasExtendedAPI() then return nil end
+    if type(UnitXP) ~= "function" then return nil end
     
     local ok, los = pcall(function() return UnitXP(unit, "los") end)
     if ok and los ~= nil then
@@ -93,7 +106,6 @@ function SimpleHealAI:LoadSettings()
     if SimpleHealAI_Saved.Threshold == nil then SimpleHealAI_Saved.Threshold = 90 end
     if SimpleHealAI_Saved.HealMode == nil then SimpleHealAI_Saved.HealMode = 1 end
     if SimpleHealAI_Saved.UseLOS == nil then SimpleHealAI_Saved.UseLOS = true end
-    if SimpleHealAI_Saved.UseCleanse == nil then SimpleHealAI_Saved.UseCleanse = false end
 end
 
 function SimpleHealAI:Announce(targetName, spellName, rank)
@@ -131,8 +143,6 @@ end
 
 function SimpleHealAI:ScanSpells()
     SimpleHealAI.Spells = {Wave = {}, Lesser = {}}
-    SimpleHealAI.CleanseSpells = {}
-    SimpleHealAI.MaxRange = 0
     
     local _, class = UnitClass("player")
     local validClasses = {SHAMAN=1, PRIEST=1, PALADIN=1, DRUID=1}
@@ -165,35 +175,8 @@ function SimpleHealAI:ScanSpells()
                     hpm = avgHeal / mana
                 }
                 
-                -- SuperWoW: Get exact range
-                if SimpleHealAI:CheckSuperWoW() and type(SpellInfo) == "function" then
-                    local _, _, _, _, _, _, _, maxR = SpellInfo(i)
-                    spellData.range = (maxR and maxR > 0) and maxR or 40
-                else
-                    spellData.range = 40
-                end
-                
-                if not SimpleHealAI.MaxRange or spellData.range > SimpleHealAI.MaxRange then
-                    SimpleHealAI.MaxRange = spellData.range
-                end
-                
+                spellData.range = 40
                 table.insert(SimpleHealAI.Spells[spellType], spellData)
-            end
-        else
-            local cleanseType = SimpleHealAI:GetCleanseType(spellName, class)
-            if cleanseType then
-                if cleanseType == "All" then
-                    SimpleHealAI.CleanseSpells["Magic"] = i
-                    SimpleHealAI.CleanseSpells["Poison"] = i
-                    SimpleHealAI.CleanseSpells["Disease"] = i
-                elseif cleanseType == "PoisonDisease" then
-                    if not SimpleHealAI.CleanseSpells["Poison"] then 
-                        SimpleHealAI.CleanseSpells["Poison"] = i
-                        SimpleHealAI.CleanseSpells["Disease"] = i
-                    end
-                else
-                    SimpleHealAI.CleanseSpells[cleanseType] = i
-                end
             end
         end
         i = i + 1
@@ -223,24 +206,6 @@ function SimpleHealAI:GetSpellType(name, class)
     elseif class == "DRUID" then
         if string.find(n, "regrowth") then return "Lesser" end
         if string.find(n, "healing touch") then return "Wave" end
-    end
-    return nil
-end
-
-function SimpleHealAI:GetCleanseType(name, class)
-    local n = string.lower(name)
-    if class == "PRIEST" then
-        if n == "dispel magic" then return "Magic" end
-        if string.find(n, "cure disease") or string.find(n, "abolish disease") then return "Disease" end
-    elseif class == "PALADIN" then
-        if n == "cleanse" then return "All" end
-        if n == "purify" then return "PoisonDisease" end
-    elseif class == "SHAMAN" then
-        if string.find(n, "cure poison") then return "Poison" end
-        if string.find(n, "cure disease") then return "Disease" end
-    elseif class == "DRUID" then
-        if string.find(n, "remove curse") then return "Curse" end
-        if string.find(n, "cure poison") or string.find(n, "abolish poison") then return "Poison" end
     end
     return nil
 end
@@ -302,25 +267,6 @@ function SimpleHealAI:DoHeal(useFast)
         return
     end
     
-    -- Check for Cleanse if enabled
-    if SimpleHealAI_Saved.UseCleanse then
-        local cleanseID = SimpleHealAI:GetCleanseSpell(target.unit)
-        if cleanseID then
-            local spellName = GetSpellName(cleanseID, BOOKTYPE_SPELL)
-            if SimpleHealAI:CheckSuperWoW() then
-                CastSpellByName(spellName, target.unit)
-            else
-                local hadTarget = UnitExists("target")
-                local savedTarget = hadTarget and SimpleHealAI:GetTargetInfo() or nil
-                TargetUnit(target.unit)
-                CastSpell(cleanseID, BOOKTYPE_SPELL)
-                if hadTarget and savedTarget then SimpleHealAI:RestoreTarget(savedTarget) end
-            end
-            SimpleHealAI:Announce(target.name, spellName, nil)
-            return
-        end
-    end
-    
     local deficit = target.max - target.current
     local spellList = useFast and SimpleHealAI.Spells.Lesser or SimpleHealAI.Spells.Wave
     if table.getn(spellList) == 0 then
@@ -339,7 +285,7 @@ function SimpleHealAI:DoHeal(useFast)
     end
     
     -- Cast heal
-    if SimpleHealAI:CheckSuperWoW() then
+    if SimpleHealAI:HasExtendedAPI() and type(CastSpellByName) == "function" then
         CastSpellByName(spell.name .. "(Rank " .. spell.rank .. ")", target.unit)
     else
         local hadTarget = UnitExists("target")
@@ -361,19 +307,26 @@ function SimpleHealAI:FindBestTarget()
     local threshold = (SimpleHealAI_Saved and SimpleHealAI_Saved.Threshold or 90) / 100
     
     SimpleHealAI:AddCandidate(candidates, "player")
-    for i = 1, GetNumPartyMembers() do SimpleHealAI:AddCandidate(candidates, "party" .. i) end
-    for i = 1, GetNumRaidMembers() do SimpleHealAI:AddCandidate(candidates, "raid" .. i) end
+    
+    local numParty = GetNumPartyMembers()
+    if numParty > 0 then
+        for i = 1, numParty do SimpleHealAI:AddCandidate(candidates, "party" .. i) end
+    end
+    
+    local numRaid = GetNumRaidMembers()
+    if numRaid > 0 then
+        for i = 1, numRaid do SimpleHealAI:AddCandidate(candidates, "raid" .. i) end
+    end
     
     local valid = {}
     for _, c in ipairs(candidates) do
         if c.ratio < threshold then table.insert(valid, c) end
     end
     
-    if table.getn(valid) == 0 then return nil end
-    table.sort(valid, function(a, b) return a.ratio < b.ratio end)
-    
     for _, c in ipairs(valid) do
-        if SimpleHealAI:CanReach(c.unit) then return c end
+        if SimpleHealAI:CanReach(c.unit) then 
+            return c 
+        end
     end
     return nil
 end
@@ -382,6 +335,11 @@ function SimpleHealAI:AddCandidate(list, unit)
     if not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return end
     if UnitIsPlayer(unit) and not UnitIsConnected(unit) then return end
     if not UnitIsFriend("player", unit) then return end
+
+    -- Avoid duplicates
+    for _, c in ipairs(list) do
+        if UnitIsUnit(c.unit, unit) then return end
+    end
     
     local cur, max = UnitHealth(unit), UnitHealthMax(unit)
     if max == 0 then return end
@@ -396,53 +354,35 @@ function SimpleHealAI:AddCandidate(list, unit)
 end
 
 function SimpleHealAI:CanReach(unit)
-    if not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return false end
+    if not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return false, "Dead/Invalid" end
     if UnitIsUnit(unit, "player") then return true end
     
-    local maxRange = SimpleHealAI.MaxRange or 40
+    -- Hardcoded 40y Check
     local dist = SimpleHealAI:GetUnitDistance(unit)
-    if dist and dist > maxRange then return false end
+    if dist and dist > 40 then return false, "Out of Range ("..math.floor(dist).."y)" end
     
-    -- Safety check: Some people report 38y as max effective range for Paladins
-    if not dist and SimpleHealAI_Saved.UseLOS then -- If we don't have exact distance, use LOS as proxy for visibility/range
-        if not UnitIsVisible(unit) then return false end
-    end
-
+    -- LOS Check if enabled
     if SimpleHealAI_Saved and SimpleHealAI_Saved.UseLOS then
-        if SimpleHealAI:IsInLineOfSight(unit) == false then return false end
+        if SimpleHealAI:IsInLineOfSight(unit) == false then return false, "Line of Sight" end
     end
     
-    if not dist then
-        -- Fallback to IsSpellInRange if we have a representative spell
-        local testSpell = nil
-        if SimpleHealAI.Spells.Wave[1] then testSpell = SimpleHealAI.Spells.Wave[1].name
-        elseif SimpleHealAI.Spells.Lesser[1] then testSpell = SimpleHealAI.Spells.Lesser[1].name end
-        
-        if testSpell and IsSpellInRange then
-            local inRange = IsSpellInRange(testSpell, unit)
-            if inRange == 0 then return false end
-        elseif not CheckInteractDistance(unit, 4) then
-            -- Extreme fallback (limited to ~28y)
-            return false
+    -- Final Range Safety (CheckInteractDistance 4 is ~28y, check is unreliable but useful as secondary)
+    -- But since we want EXACT 40Y, we rely on Extended API or isSpellInRange
+    local testSpellID = nil
+    if SimpleHealAI.Spells.Wave[1] then testSpellID = SimpleHealAI.Spells.Wave[1].id
+    elseif SimpleHealAI.Spells.Lesser[1] then testSpellID = SimpleHealAI.Spells.Lesser[1].id end
+    
+    if testSpellID and IsSpellInRange then
+        if IsSpellInRange(testSpellID, BOOKTYPE_SPELL, unit) ~= 1 then
+            return false, "Out of Range"
+        end
+    elseif not dist then
+        if not CheckInteractDistance(unit, 4) then
+            return false, "Out of Range (>28y)"
         end
     end
-    return true
-end
 
-function SimpleHealAI:GetCleanseSpell(unit)
-    for i = 1, 16 do
-        local tex = UnitDebuff(unit, i)
-        if not tex then break end
-        SimpleHealAI_Tooltip:SetOwner(UIParent, "ANCHOR_NONE")
-        SimpleHealAI_Tooltip:SetUnitDebuff(unit, i)
-        local debuffType = SimpleHealAI_TooltipTextRight1:GetText()
-        if debuffType and SimpleHealAI.CleanseSpells[debuffType] then
-            SimpleHealAI_Tooltip:Hide()
-            return SimpleHealAI.CleanseSpells[debuffType]
-        end
-    end
-    SimpleHealAI_Tooltip:Hide()
-    return nil
+    return true
 end
 
 function SimpleHealAI:PickBestRank(spellList, deficit)
@@ -525,13 +465,11 @@ function SimpleHealAI:RefreshConfig()
     local healMode = SimpleHealAI_Saved and SimpleHealAI_Saved.HealMode or 1
     local thresh = SimpleHealAI_Saved and SimpleHealAI_Saved.Threshold or 90
     local useLOS = SimpleHealAI_Saved and SimpleHealAI_Saved.UseLOS
-    local useCleanse = SimpleHealAI_Saved and SimpleHealAI_Saved.UseCleanse
     
     SimpleHealAI_ModeEff:SetText(healMode == 1 and "|cff00ff00Eff|r" or "Eff")
     SimpleHealAI_ModeSmart:SetText(healMode == 2 and "|cff00ff00Smart|r" or "Smart")
     
     SimpleHealAI_ModeLOSCheck:SetChecked(useLOS)
-    SimpleHealAI_ModeCleanseCheck:SetChecked(useCleanse)
     
     SimpleHealAI_MsgOff:SetText(msgMode == 0 and "|cff00ff00Off|r" or "Off")
     SimpleHealAI_MsgAll:SetText(msgMode == 1 and "|cff00ff00All|r" or "All")
@@ -555,14 +493,6 @@ function SimpleHealAI:ToggleLOS()
     SimpleHealAI:RefreshConfig()
     local status = SimpleHealAI_Saved.UseLOS and "|cff00ff00Enabled|r" or "|cffff0000Disabled|r"
     DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r LOS check: " .. status)
-end
-
-function SimpleHealAI:ToggleCleanse()
-    if not SimpleHealAI_Saved then SimpleHealAI_Saved = {} end
-    SimpleHealAI_Saved.UseCleanse = not SimpleHealAI_Saved.UseCleanse
-    SimpleHealAI:RefreshConfig()
-    local status = SimpleHealAI_Saved.UseCleanse and "|cff00ff00Enabled|r" or "|cffff0000Disabled|r"
-    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r Auto-Dispelling: " .. status)
 end
 
 function SimpleHealAI:SetMsgMode(mode)
