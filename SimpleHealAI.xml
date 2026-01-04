@@ -69,8 +69,16 @@
                 <Anchors><Anchor point="LEFT" relativeTo="SimpleHealAI_ModeLOSCheck" relativePoint="RIGHT"><Offset><AbsDimension x="5" y="0"/></Offset></Anchor></Anchors>
             </FontString>
 
-            <FontString name="SimpleHealAI_ModeLOSLabel" inherits="GameFontNormal" text="Line of Sight Check">
-                <Anchors><Anchor point="LEFT" relativeTo="SimpleHealAI_ModeLOSCheck" relativePoint="RIGHT"><Offset><AbsDimension x="5" y="0"/></Offset></Anchor></Anchors>
+            <CheckButton name="SimpleHealAI_ModeCleanseCheck" inherits="OptionsCheckButtonTemplate">
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="130" y="-100"/></Offset></Anchor></Anchors>
+                <Scripts>
+                    <OnClick>SimpleHealAI:ToggleCleanse();</OnClick>
+                    <OnEnter>SimpleHealAI:ShowTooltip("Auto-dispel Magic, Curse, Poison, Disease.");</OnEnter>
+                    <OnLeave>GameTooltip:Hide();</OnLeave>
+                </Scripts>
+            </CheckButton>
+            <FontString name="SimpleHealAI_ModeCleanseLabel" inherits="GameFontNormal" text="Dispel">
+                <Anchors><Anchor point="LEFT" relativeTo="SimpleHealAI_ModeCleanseCheck" relativePoint="RIGHT"><Offset><AbsDimension x="5" y="0"/></Offset></Anchor></Anchors>
             </FontString>
 
             <!-- Message Mode -->
