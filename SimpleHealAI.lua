@@ -2,7 +2,7 @@
     SimpleHealAI - Auto-Target, Auto-Rank Healing Addon
     Vanilla WoW 1.12
     
-    Supports: Shaman, Priest, Paladin, Druid
+    PRO CORE: Requires SuperWoW and UnitXP (SP3)
     
     Usage:
         /heal        - Smart heal (lowest HP target, best efficiency)
@@ -14,76 +14,39 @@
 SimpleHealAI = {}
 SimpleHealAI.Ready = false
 SimpleHealAI.Spells = { Wave = {}, Lesser = {} }
-SimpleHealAI.ExtendedAPI = nil -- nil = unchecked, true/false after check
-SimpleHealAI.LastAnnounce = nil  -- For spam reduction
-SimpleHealAI.LastManaNotify = 0  -- Time of last /oom emote
+SimpleHealAI.LastAnnounce = nil
+SimpleHealAI.LastManaNotify = 0
 
 --[[ ================================================================
-    SUPERWOW / EXTENDED API DETECTION
+    DEPENDENCY CHECK
 ================================================================ ]]
 
-function SimpleHealAI:HasExtendedAPI()
-    if SimpleHealAI.ExtendedAPI ~= nil then return SimpleHealAI.ExtendedAPI end
+function SimpleHealAI:CheckDependencies()
+    local hasSuperWoW = (type(CastSpellByName) == "function")
+    local hasUnitXP = (type(UnitXP) == "function") and pcall(UnitXP, "nop", "nop")
+    local hasSpellInfo = (type(SpellInfo) == "function")
     
-    local hasIt = (SUPERWOW_VERSION ~= nil) or 
-                  (type(UnitXP) == "function") or 
-                  (type(UnitPosition) == "function") or
-                  (type(SpellInfo) == "function")
-    
-    -- Check for UnitXP SP3 specifically for the new function signatures
-    local hasXP3 = false
-    if type(UnitXP) == "function" then
-        hasXP3 = pcall(UnitXP, "nop", "nop")
+    if hasSuperWoW and hasUnitXP and hasSpellInfo then
+        return true
     end
-    SimpleHealAI.hasXP3 = hasXP3
     
-    SimpleHealAI.ExtendedAPI = hasIt
-    if hasIt then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r Extended API (SuperWoW/UnitXP) detected.")
-    end
-    return hasIt
+    local missing = {}
+    if not hasSuperWoW then table.insert(missing, "SuperWoW") end
+    if not hasUnitXP then table.insert(missing, "UnitXP (SP3)") end
+    if not hasSpellInfo then table.insert(missing, "SpellInfo API") end
+    
+    DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHealAI] ERROR: Missing mandatory dependencies: " .. table.concat(missing, ", ") .. "|r")
+    return false
 end
 
 function SimpleHealAI:GetUnitDistance(unit)
-    if not SimpleHealAI:HasExtendedAPI() then return nil end
-    
-    -- Try UnitXP SP3 distanceBetween first (most accurate)
-    if SimpleHealAI.hasXP3 then
-        local ok, dist = pcall(function() return UnitXP("distanceBetween", "player", unit) end)
-        if ok and dist and type(dist) == "number" and dist < 500 then
-            return dist
-        end
-    elseif type(UnitXP) == "function" then -- Legacy UnitXP fallback
-        local ok, dist = pcall(function() return UnitXP(unit, "range") end)
-        if ok and dist and type(dist) == "number" and dist < 500 then
-            return dist
-        end
-    end
-    
-    -- Fallback to UnitPosition (manual 3D distance)
-    if type(UnitPosition) == "function" then
-        local x1, y1, z1 = UnitPosition("player")
-        local x2, y2, z2 = UnitPosition(unit)
-        if x1 and x2 then
-            local dx, dy, dz = x1-x2, y1-y2, z1-z2
-            return math.sqrt(dx*dx + dy*dy + dz*dz)
-        end
-    end
-    return nil
+    local ok, dist = pcall(UnitXP, "distanceBetween", "player", unit)
+    return (ok and type(dist) == "number") and dist or nil
 end
 
 function SimpleHealAI:IsInLineOfSight(unit)
-    if not SimpleHealAI:HasExtendedAPI() then return nil end
-    if SimpleHealAI.hasXP3 then
-        local ok, los = pcall(function() return UnitXP("inSight", "player", unit) end)
-        if ok and los ~= nil then return los end
-    elseif type(UnitXP) == "function" then -- Legacy UnitXP fallback
-        local ok, los = pcall(function() return UnitXP(unit, "los") end)
-        if ok and los ~= nil then
-            return los
-        end
-    end
-    return nil
+    local ok, los = pcall(UnitXP, "inSight", "player", unit)
+    return ok and los
 end
 
 --[[ ================================================================
@@ -102,14 +65,20 @@ function SimpleHealAI:OnLoad()
     SLASH_SIMPLEHEALAI2 = "/sheal"
     SLASH_SIMPLEHEALAI3 = "/healai"
     
-    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r Loaded. /heal config for options.")
+    if SimpleHealAI:CheckDependencies() then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r Loaded. Direct Casting & XP3 Range active.")
+    end
 end
 
 function SimpleHealAI:OnEvent(event)
     if event == "VARIABLES_LOADED" then
         SimpleHealAI:LoadSettings()
     elseif event == "PLAYER_ENTERING_WORLD" or event == "SPELLS_CHANGED" then
-        SimpleHealAI:ScanSpells()
+        if SimpleHealAI:CheckDependencies() then
+            SimpleHealAI:ScanSpells()
+        else
+            SimpleHealAI.Ready = false
+        end
     elseif event == "UNIT_MANA" or event == "UNIT_MAXMANA" then
         if arg1 == "player" then SimpleHealAI:CheckManaNotify() end
     end
@@ -144,8 +113,10 @@ function SimpleHealAI.SlashHandler(msg)
         DEFAULT_CHAT_FRAME:AddMessage("  /heal config - Settings")
         DEFAULT_CHAT_FRAME:AddMessage("  /heal scan - Manual spell scan")
     elseif msg == "scan" then
-        SimpleHealAI:ScanSpells()
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r Spell scanning complete.")
+        if SimpleHealAI:CheckDependencies() then
+            SimpleHealAI:ScanSpells()
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r Spell scanning complete.")
+        end
     elseif msg == "config" or msg == "options" then
         SimpleHealAI:ToggleConfig()
     else
@@ -164,7 +135,6 @@ function SimpleHealAI:ScanSpells()
     local validClasses = {SHAMAN=1, PRIEST=1, PALADIN=1, DRUID=1}
     if not validClasses[class] then return end
     
-    local hasSpellInfo = type(SpellInfo) == "function"
     local i = 1
     while true do
         local spellName, spellRank = GetSpellName(i, BOOKTYPE_SPELL)
@@ -172,16 +142,9 @@ function SimpleHealAI:ScanSpells()
         
         local spellType = SimpleHealAI:GetSpellType(spellName, class)
         if spellType then
-            local mana, minH, maxH, range
-            
-            if hasSpellInfo then
-                local _, _, _, _, maxR = SpellInfo(i)
-                range = (maxR and maxR > 0) and maxR or 40
-                mana, minH, maxH = SimpleHealAI:ParseSpellTooltip(i)
-            else
-                mana, minH, maxH = SimpleHealAI:ParseSpellTooltip(i)
-                range = 40
-            end
+            local _, _, _, _, maxR = SpellInfo(i)
+            local range = (maxR and maxR > 0) and maxR or 40
+            local mana, minH, maxH = SimpleHealAI:ParseSpellTooltip(i)
 
             local rankNum = SimpleHealAI:ExtractRank(spellRank)
             
@@ -271,6 +234,7 @@ end
 
 function SimpleHealAI:DoHeal()
     if not SimpleHealAI.Ready then
+        if not SimpleHealAI:CheckDependencies() then return end
         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHealAI]|r No spells found. Use /heal scan")
         return
     end
@@ -300,50 +264,8 @@ function SimpleHealAI:DoHeal()
     SimpleHealAI:Announce(target.name, spell.name, spell.rank)
 end
 
-function SimpleHealAI:CheckManaNotify()
-    if not SimpleHealAI_Saved or not SimpleHealAI_Saved.EnableLowManaNotify then return end
-    
-    local _, class = UnitClass("player")
-    local mana, maxMana
-
-    if class == "DRUID" then
-        local _, casterMana = UnitMana("player")
-        local _, casterMaxMana = UnitManaMax("player")
-        mana = casterMana
-        maxMana = casterMaxMana
-    else
-        mana = UnitMana("player")
-        maxMana = UnitManaMax("player")
-    end
-
-    if not maxMana or maxMana == 0 then return end
-    
-    local manaPercent = (mana / maxMana) * 100
-    local now = GetTime()
-    
-    if manaPercent <= SimpleHealAI_Saved.LowManaThreshold then
-        -- 10s frequency limit to prevent spam
-        if now - SimpleHealAI.LastManaNotify >= 10 then
-            DoEmote("OOM")
-            SimpleHealAI.LastManaNotify = now
-        end
-    end
-end
-
 function SimpleHealAI:Cast(spell, unit)
-    if (SUPERWOW_VERSION or type(CastSpellByName) == "function") and unit then
-        CastSpellByName(spell.name .. (spell.rank and "(Rank " .. spell.rank .. ")" or ""), unit)
-    else
-        local hadTarget = UnitExists("target")
-        local savedTarget = hadTarget and SimpleHealAI:GetTargetInfo() or nil
-        TargetUnit(unit)
-        CastSpell(spell.id, BOOKTYPE_SPELL)
-        if hadTarget and savedTarget then
-            SimpleHealAI:RestoreTarget(savedTarget)
-        elseif not hadTarget then
-            ClearTarget()
-        end
-    end
+    CastSpellByName(spell.name .. (spell.rank and "(Rank " .. spell.rank .. ")" or ""), unit)
 end
 
 function SimpleHealAI:FindBestTarget()
@@ -396,35 +318,19 @@ function SimpleHealAI:CanReach(unit)
     if not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return false end
     if UnitIsUnit(unit, "player") then return true end
     
-    -- 1. Try Extended API distance
-    local dist = SimpleHealAI:GetUnitDistance(unit)
-    
-    -- 2. LOS Check
     if SimpleHealAI_Saved and SimpleHealAI_Saved.UseLOS then
-        if SimpleHealAI:IsInLineOfSight(unit) == false then return false end
+        if not SimpleHealAI:IsInLineOfSight(unit) then return false end
     end
     
-    -- 3. Range Verification
+    local dist = SimpleHealAI:GetUnitDistance(unit)
+    if not dist then return false end
+
     local testSpell = nil
     if SimpleHealAI.Spells.Wave[1] then testSpell = SimpleHealAI.Spells.Wave[1]
     elseif SimpleHealAI.Spells.Lesser[1] then testSpell = SimpleHealAI.Spells.Lesser[1] end
     
-    if dist then
-        local maxR = (testSpell and testSpell.range) and testSpell.range or 40
-        if dist > maxR then return false end
-    end
-    
-    if testSpell and IsSpellInRange then
-        if IsSpellInRange(testSpell.id, BOOKTYPE_SPELL, unit) == 0 then
-            return false
-        end
-    elseif not dist then
-        if not CheckInteractDistance(unit, 4) then
-            return false
-        end
-    end
-
-    return true
+    local maxR = (testSpell and testSpell.range) and testSpell.range or 40
+    return dist <= maxR
 end
 
 function SimpleHealAI:PickBestRank(spellList, deficit)
@@ -460,32 +366,35 @@ function SimpleHealAI:PickBestRank(spellList, deficit)
 end
 
 --[[ ================================================================
-    TARGET UTILITIES
+    MANA NOTIFY
 ================================================================ ]]
 
-function SimpleHealAI:GetTargetInfo()
-    if not UnitExists("target") then return nil end
-    local info = { name = UnitName("target"), unit = nil }
-    if UnitIsUnit("target", "player") then
-        info.unit = "player"
-    elseif UnitInParty("target") then
-        for i = 1, GetNumPartyMembers() do
-            if UnitIsUnit("target", "party" .. i) then info.unit = "party" .. i break end
-        end
-    elseif UnitInRaid("target") then
-        for i = 1, GetNumRaidMembers() do
-            if UnitIsUnit("target", "raid" .. i) then info.unit = "raid" .. i break end
-        end
-    end
-    return info
-end
+function SimpleHealAI:CheckManaNotify()
+    if not SimpleHealAI_Saved or not SimpleHealAI_Saved.EnableLowManaNotify then return end
+    
+    local _, class = UnitClass("player")
+    local mana, maxMana
 
-function SimpleHealAI:RestoreTarget(info)
-    if not info then return end
-    if info.unit and UnitExists(info.unit) then
-        TargetUnit(info.unit)
-    elseif info.name then
-        TargetByName(info.name)
+    if class == "DRUID" then
+        local _, casterMana = UnitMana("player")
+        local _, casterMaxMana = UnitManaMax("player")
+        mana = casterMana
+        maxMana = casterMaxMana
+    else
+        mana = UnitMana("player")
+        maxMana = UnitManaMax("player")
+    end
+
+    if not maxMana or maxMana == 0 then return end
+    
+    local manaPercent = (mana / maxMana) * 100
+    local now = GetTime()
+    
+    if manaPercent <= SimpleHealAI_Saved.LowManaThreshold then
+        if now - SimpleHealAI.LastManaNotify >= 10 then
+            DoEmote("OOM")
+            SimpleHealAI.LastManaNotify = now
+        end
     end
 end
 
