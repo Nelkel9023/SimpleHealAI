@@ -13,7 +13,7 @@
 
 SimpleHealAI = {}
 SimpleHealAI.Ready = false
-SimpleHealAI.Spells = { Wave = {}, Lesser = {} }
+SimpleHealAI.Spells = {}
 SimpleHealAI.LastAnnounce = nil
 SimpleHealAI.LastManaNotify = 0
 
@@ -40,8 +40,7 @@ function SimpleHealAI:CheckDependencies()
 end
 
 function SimpleHealAI:GetUnitDistance(unit)
-    local ok, dist = pcall(UnitXP, "distanceBetween", "player", unit)
-    return (ok and type(dist) == "number") and dist or nil
+    return UnitXP("distanceBetween", "player", unit)
 end
 
 function SimpleHealAI:IsInLineOfSight(unit)
@@ -55,7 +54,6 @@ end
 
 function SimpleHealAI:OnLoad()
     SimpleHealAI_Frame:RegisterEvent("PLAYER_ENTERING_WORLD")
-    SimpleHealAI_Frame:RegisterEvent("SPELLS_CHANGED")
     SimpleHealAI_Frame:RegisterEvent("VARIABLES_LOADED")
     SimpleHealAI_Frame:RegisterEvent("UNIT_MANA")
     SimpleHealAI_Frame:RegisterEvent("UNIT_MAXMANA")
@@ -73,7 +71,7 @@ end
 function SimpleHealAI:OnEvent(event)
     if event == "VARIABLES_LOADED" then
         SimpleHealAI:LoadSettings()
-    elseif event == "PLAYER_ENTERING_WORLD" or event == "SPELLS_CHANGED" then
+    elseif event == "PLAYER_ENTERING_WORLD" then
         if SimpleHealAI:CheckDependencies() then
             SimpleHealAI:ScanSpells()
         else
@@ -129,7 +127,7 @@ end
 ================================================================ ]]
 
 function SimpleHealAI:ScanSpells()
-    SimpleHealAI.Spells = { Wave = {}, Lesser = {} }
+    SimpleHealAI.Spells = {}
     
     local _, class = UnitClass("player")
     local validClasses = {SHAMAN=1, PRIEST=1, PALADIN=1, DRUID=1}
@@ -140,17 +138,16 @@ function SimpleHealAI:ScanSpells()
         local spellName, spellRank = GetSpellName(i, BOOKTYPE_SPELL)
         if not spellName then break end
         
-        local spellType = SimpleHealAI:GetSpellType(spellName, class)
-        if spellType then
+        if SimpleHealAI:IsHealingSpell(spellName, class) then
             local _, _, _, _, maxR = SpellInfo(i)
-            local range = (maxR and maxR > 0) and maxR or 40
+            local range = (maxR and type(maxR) == "number" and maxR > 0) and maxR or 40
             local mana, minH, maxH = SimpleHealAI:ParseSpellTooltip(i)
 
             local rankNum = SimpleHealAI:ExtractRank(spellRank)
             
             if mana and minH and maxH then
                 local avgHeal = (minH + maxH) / 2
-                table.insert(SimpleHealAI.Spells[spellType], {
+                table.insert(SimpleHealAI.Spells, {
                     id = i, name = spellName, rank = rankNum, mana = mana,
                     avg = avgHeal, min = minH, max = maxH, 
                     hpm = avgHeal / mana, range = range
@@ -160,31 +157,51 @@ function SimpleHealAI:ScanSpells()
         i = i + 1
     end
     
-    table.sort(SimpleHealAI.Spells.Wave, function(a,b) return a.rank < b.rank end)
-    table.sort(SimpleHealAI.Spells.Lesser, function(a,b) return a.rank < b.rank end)
+    table.sort(SimpleHealAI.Spells, function(a,b) 
+        if a.name ~= b.name then return a.name < b.name end
+        return a.rank < b.rank 
+    end)
     
-    local total = table.getn(SimpleHealAI.Spells.Wave) + table.getn(SimpleHealAI.Spells.Lesser)
+    local total = table.getn(SimpleHealAI.Spells)
     SimpleHealAI.Ready = (total > 0)
+    
+    if SimpleHealAI.Ready then
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHealAI]|r Scanned " .. total .. " spells.")
+    end
 end
 
-function SimpleHealAI:GetSpellType(name, class)
+function SimpleHealAI:IsHealingSpell(name, class)
     local n = string.lower(name)
     if class == "SHAMAN" then
-        if string.find(n, "lesser healing wave") then return "Lesser" end
-        if string.find(n, "chain heal") then return "Lesser" end 
-        if string.find(n, "healing wave") then return "Wave" end
+        return string.find(n, "healing wave") or string.find(n, "chain heal")
     elseif class == "PRIEST" then
-        if string.find(n, "flash heal") then return "Lesser" end
-        if string.find(n, "greater heal") or n == "heal" or string.find(n, "lesser heal") then return "Wave" end
+        return string.find(n, "flash heal") or string.find(n, "greater heal") or n == "heal" or string.find(n, "lesser heal") or string.find(n, "prayer of healing") or string.find(n, "renew")
     elseif class == "PALADIN" then
-        if string.find(n, "flash of light") then return "Lesser" end
-        if string.find(n, "holy light") then return "Wave" end
-        if string.find(n, "holy shock") then return "Lesser" end
+        return string.find(n, "flash of light") or string.find(n, "holy light") or string.find(n, "holy shock")
     elseif class == "DRUID" then
-        if string.find(n, "regrowth") then return "Lesser" end
-        if string.find(n, "healing touch") then return "Wave" end
+        return string.find(n, "regrowth") or string.find(n, "healing touch") or string.find(n, "rejuvenation")
     end
-    return nil
+    return false
+end
+
+function SimpleHealAI:UnitHasBuff(unit, buffName)
+    local i = 1
+    while true do
+        local b = UnitBuff(unit, i)
+        if not b then break end
+        
+        SimpleHealAI_Tooltip:SetOwner(UIParent, "ANCHOR_NONE")
+        SimpleHealAI_Tooltip:ClearLines()
+        SimpleHealAI_Tooltip:SetUnitBuff(unit, i)
+        local text = SimpleHealAI_TooltipTextLeft1:GetText()
+        SimpleHealAI_Tooltip:Hide()
+        
+        if text and string.find(string.lower(text), string.lower(buffName)) then 
+            return true 
+        end
+        i = i + 1
+    end
+    return false
 end
 
 function SimpleHealAI:ExtractRank(rankStr)
@@ -213,11 +230,20 @@ function SimpleHealAI:ParseSpellTooltip(spellID)
         if line then
             local text = line:GetText()
             if text then
+                -- Standard Heal: "Heals X to Y"
                 local _, _, min = string.find(text, "(%d+) to")
                 local _, _, max = string.find(text, "to (%d+)")
                 if min and max then
                     minHeal = tonumber(min)
                     maxHeal = tonumber(max)
+                    break
+                end
+                
+                -- HoT: "Heals X over Y sec"
+                local _, _, hot = string.find(text, "Heals (%d+) over")
+                if hot then
+                    minHeal = tonumber(hot)
+                    maxHeal = tonumber(hot)
                     break
                 end
             end
@@ -246,15 +272,14 @@ function SimpleHealAI:DoHeal()
     end
     
     local deficit = target.max - target.current
-    local spellList = SimpleHealAI.Spells.Wave
-    if table.getn(spellList) == 0 then spellList = SimpleHealAI.Spells.Lesser end
+    local spellList = SimpleHealAI.Spells
     
     if table.getn(spellList) == 0 then
         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHealAI]|r No healing spells available!")
         return
     end
     
-    local spell = SimpleHealAI:PickBestRank(spellList, deficit)
+    local spell = SimpleHealAI:PickBestRank(spellList, deficit, target.unit)
     if not spell then
         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHealAI]|r Not enough mana!")
         return
@@ -294,12 +319,13 @@ function SimpleHealAI:FindBestTarget()
 end
 
 function SimpleHealAI:AddCandidate(list, unit)
-    if not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return end
+    local guid = UnitExists(unit)
+    if not guid or UnitIsDeadOrGhost(unit) then return end
     if UnitIsPlayer(unit) and not UnitIsConnected(unit) then return end
     if not UnitIsFriend("player", unit) then return end
 
     for _, c in ipairs(list) do
-        if UnitIsUnit(c.unit, unit) then return end
+        if c.guid == guid then return end
     end
     
     local cur, max = UnitHealth(unit), UnitHealthMax(unit)
@@ -307,6 +333,7 @@ function SimpleHealAI:AddCandidate(list, unit)
     
     table.insert(list, {
         unit = unit,
+        guid = guid,
         name = UnitName(unit),
         current = cur,
         max = max,
@@ -325,23 +352,27 @@ function SimpleHealAI:CanReach(unit)
     local dist = SimpleHealAI:GetUnitDistance(unit)
     if not dist then return false end
 
-    local testSpell = nil
-    if SimpleHealAI.Spells.Wave[1] then testSpell = SimpleHealAI.Spells.Wave[1]
-    elseif SimpleHealAI.Spells.Lesser[1] then testSpell = SimpleHealAI.Spells.Lesser[1] end
+    local testSpell = SimpleHealAI.Spells[1]
     
     local maxR = (testSpell and testSpell.range) and testSpell.range or 40
     return dist <= maxR
 end
 
-function SimpleHealAI:PickBestRank(spellList, deficit)
-    local power, mana = UnitMana("player")
+function SimpleHealAI:PickBestRank(spellList, deficit, unit)
+    local currentMana, casterMana = UnitMana("player")
     local _, class = UnitClass("player")
-    local playerMana = (class == "DRUID" and mana) and mana or power
+    local playerMana = (class == "DRUID" and casterMana) and casterMana or currentMana
     local mode = SimpleHealAI_Saved and SimpleHealAI_Saved.HealMode or 1
     
     local affordable = {}
     for _, spell in ipairs(spellList) do
-        if spell.mana <= playerMana then table.insert(affordable, spell) end
+        -- Skip HoTs if the target already has them
+        local isHot = string.find(string.lower(spell.name), "renew") or string.find(string.lower(spell.name), "rejuvenation")
+        if isHot and unit and SimpleHealAI:UnitHasBuff(unit, spell.name) then
+            -- Skip
+        elseif spell.mana <= playerMana then 
+            table.insert(affordable, spell) 
+        end
     end
     if table.getn(affordable) == 0 then return nil end
     
@@ -351,7 +382,8 @@ function SimpleHealAI:PickBestRank(spellList, deficit)
         local bestSpell, bestEfficiency = nil, -1
         for _, spell in ipairs(affordable) do
             local eff = math.min(spell.avg, deficit) / spell.mana
-            if eff >= bestEfficiency then
+            -- If efficiencies are equal, pick the one that heals more (closer to deficit)
+            if eff > bestEfficiency or (math.abs(eff - bestEfficiency) < 0.001 and spell.avg > (bestSpell and bestSpell.avg or 0)) then
                 bestEfficiency = eff
                 bestSpell = spell
             end
