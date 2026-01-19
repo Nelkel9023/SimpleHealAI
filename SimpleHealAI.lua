@@ -290,7 +290,11 @@ function SimpleHealAI:DoHeal()
 end
 
 function SimpleHealAI:Cast(spell, unit)
-    CastSpellByName(spell.name .. (spell.rank and "(Rank " .. spell.rank .. ")" or ""), unit)
+    local spellString = spell.name
+    if spell.rank then
+        spellString = spellString .. "(Rank " .. spell.rank .. ")"
+    end
+    CastSpellByName(spellString, unit)
 end
 
 function SimpleHealAI:FindBestTarget()
@@ -319,13 +323,16 @@ function SimpleHealAI:FindBestTarget()
 end
 
 function SimpleHealAI:AddCandidate(list, unit)
-    local guid = UnitExists(unit)
-    if not guid or UnitIsDeadOrGhost(unit) then return end
+    local exists, guid = UnitExists(unit)
+    if not exists or UnitIsDeadOrGhost(unit) then return end
     if UnitIsPlayer(unit) and not UnitIsConnected(unit) then return end
     if not UnitIsFriend("player", unit) then return end
 
-    for _, c in ipairs(list) do
-        if c.guid == guid then return end
+    -- SuperWoW returns GUID as second value; dedupe by GUID if available
+    if guid then
+        for _, c in ipairs(list) do
+            if c.guid == guid then return end
+        end
     end
     
     local cur, max = UnitHealth(unit), UnitHealthMax(unit)
@@ -333,7 +340,7 @@ function SimpleHealAI:AddCandidate(list, unit)
     
     table.insert(list, {
         unit = unit,
-        guid = guid,
+        guid = guid or unit,  -- fallback to unit ID if no GUID
         name = UnitName(unit),
         current = cur,
         max = max,
@@ -342,7 +349,8 @@ function SimpleHealAI:AddCandidate(list, unit)
 end
 
 function SimpleHealAI:CanReach(unit)
-    if not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return false end
+    local exists = UnitExists(unit)
+    if not exists or UnitIsDeadOrGhost(unit) then return false end
     if UnitIsUnit(unit, "player") then return true end
     
     if SimpleHealAI_Saved and SimpleHealAI_Saved.UseLOS then
@@ -408,10 +416,12 @@ function SimpleHealAI:CheckManaNotify()
     local mana, maxMana
 
     if class == "DRUID" then
+        -- SuperWoW: UnitMana returns (formPower, casterMana) for druids
         local _, casterMana = UnitMana("player")
-        local _, casterMaxMana = UnitManaMax("player")
-        mana = casterMana
-        maxMana = casterMaxMana
+        local maxManaVal = UnitManaMax("player")
+        -- For druids in form, casterMana is the real mana pool
+        mana = casterMana or UnitMana("player")
+        maxMana = maxManaVal
     else
         mana = UnitMana("player")
         maxMana = UnitManaMax("player")
