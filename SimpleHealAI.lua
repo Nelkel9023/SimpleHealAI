@@ -175,7 +175,7 @@ function SimpleHealAI:IsHealingSpell(name, class)
     if class == "SHAMAN" then
         return string.find(n, "healing wave") or string.find(n, "chain heal")
     elseif class == "PRIEST" then
-        return string.find(n, "flash heal") or string.find(n, "greater heal") or n == "heal" or string.find(n, "lesser heal") or string.find(n, "prayer of healing") or string.find(n, "renew")
+        return string.find(n, "flash heal") or string.find(n, "greater heal") or n == "heal" or string.find(n, "lesser heal") or string.find(n, "prayer of healing") or string.find(n, "renew") or string.find(n, "power word: shield")
     elseif class == "PALADIN" then
         return string.find(n, "flash of light") or string.find(n, "holy light") or string.find(n, "holy shock")
     elseif class == "DRUID" then
@@ -187,20 +187,38 @@ end
 function SimpleHealAI:UnitHasBuff(unit, buffName)
     local i = 1
     while true do
-        local b = UnitBuff(unit, i)
-        if not b then break end
-        
+        if not UnitBuff(unit, i) then break end
         SimpleHealAI_Tooltip:SetOwner(UIParent, "ANCHOR_NONE")
         SimpleHealAI_Tooltip:ClearLines()
         SimpleHealAI_Tooltip:SetUnitBuff(unit, i)
         local text = SimpleHealAI_TooltipTextLeft1:GetText()
-        SimpleHealAI_Tooltip:Hide()
         
         if text and string.find(string.lower(text), string.lower(buffName)) then 
+            SimpleHealAI_Tooltip:Hide()
             return true 
         end
         i = i + 1
     end
+    SimpleHealAI_Tooltip:Hide()
+    return false
+end
+
+function SimpleHealAI:UnitHasDebuff(unit, debuffName)
+    local i = 1
+    while true do
+        if not UnitDebuff(unit, i) then break end
+        SimpleHealAI_Tooltip:SetOwner(UIParent, "ANCHOR_NONE")
+        SimpleHealAI_Tooltip:ClearLines()
+        SimpleHealAI_Tooltip:SetUnitDebuff(unit, i)
+        local text = SimpleHealAI_TooltipTextLeft1:GetText()
+        
+        if text and string.find(string.lower(text), string.lower(debuffName)) then 
+            SimpleHealAI_Tooltip:Hide()
+            return true 
+        end
+        i = i + 1
+    end
+    SimpleHealAI_Tooltip:Hide()
     return false
 end
 
@@ -244,6 +262,14 @@ function SimpleHealAI:ParseSpellTooltip(spellID)
                 if hot then
                     minHeal = tonumber(hot)
                     maxHeal = tonumber(hot)
+                    break
+                end
+
+                -- Shield: "absorbing X damage"
+                local _, _, absorb = string.find(text, "absorbing (%d+) damage")
+                if absorb then
+                    minHeal = tonumber(absorb)
+                    maxHeal = tonumber(absorb)
                     break
                 end
             end
@@ -311,6 +337,9 @@ function SimpleHealAI:FindBestTarget()
         for i = 1, numRaid do SimpleHealAI:AddCandidate(candidates, "raid" .. i) end
     end
     
+    -- Always check target for non-group healing
+    SimpleHealAI:AddCandidate(candidates, "target")
+    
     local best = nil
     for _, c in ipairs(candidates) do
         if c.ratio < threshold and SimpleHealAI:CanReach(c.unit) then
@@ -374,11 +403,29 @@ function SimpleHealAI:PickBestRank(spellList, deficit, unit)
     
     local affordable = {}
     for _, spell in ipairs(spellList) do
-        -- Skip HoTs if the target already has them
-        local isHot = string.find(string.lower(spell.name), "renew") or string.find(string.lower(spell.name), "rejuvenation")
-        if isHot and unit and SimpleHealAI:UnitHasBuff(unit, spell.name) then
-            -- Skip
-        elseif spell.mana <= playerMana then 
+        local name = string.lower(spell.name)
+        local isHot = string.find(name, "renew") or string.find(name, "rejuvenation")
+        local isShield = string.find(name, "power word: shield")
+        
+        local skip = false
+        if spell.mana > playerMana then
+            skip = true
+        elseif isHot and unit and SimpleHealAI:UnitHasBuff(unit, spell.name) then
+            skip = true
+        elseif isShield then
+            -- Check for active shield or Weakened Soul debuff
+            if unit and (SimpleHealAI:UnitHasBuff(unit, "Power Word: Shield") or SimpleHealAI:UnitHasDebuff(unit, "Weakened Soul")) then
+                skip = true
+            else
+                -- Check spell cooldown
+                local start, duration = GetSpellCooldown(spell.id, BOOKTYPE_SPELL)
+                if start > 0 and duration > 1.5 then
+                    skip = true
+                end
+            end
+        end
+        
+        if not skip then 
             table.insert(affordable, spell) 
         end
     end
