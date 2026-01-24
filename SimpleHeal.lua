@@ -21,10 +21,23 @@ SimpleHeal = {
 
 -- Tables for dispelling logic (inspired by Rinse)
 SimpleHeal.DispelSpells = {
-    PALADIN = { ["Magic"] = "Cleanse", ["Poison"] = "Cleanse", ["Disease"] = "Cleanse" },
-    DRUID   = { ["Curse"] = "Remove Curse", ["Poison"] = "Abolish Poison" },
-    PRIEST  = { ["Magic"] = "Dispel Magic", ["Disease"] = "Abolish Disease" },
-    SHAMAN  = { ["Poison"] = "Cure Poison", ["Disease"] = "Cure Disease" },
+    PALADIN = { 
+        ["Magic"] = {"Cleanse"}, 
+        ["Poison"] = {"Cleanse", "Purify"}, 
+        ["Disease"] = {"Cleanse", "Purify"} 
+    },
+    DRUID   = { 
+        ["Curse"] = {"Remove Curse"}, 
+        ["Poison"] = {"Abolish Poison", "Cure Poison"} 
+    },
+    PRIEST  = { 
+        ["Magic"] = {"Dispel Magic"}, 
+        ["Disease"] = {"Abolish Disease", "Cure Disease"} 
+    },
+    SHAMAN  = { 
+        ["Poison"] = {"Cure Poison"}, 
+        ["Disease"] = {"Cure Disease"} 
+    },
 }
 
 SimpleHeal.PendingHeals = {} -- { [guid] = timestamp }
@@ -135,35 +148,33 @@ function SimpleHeal:ScanSpells()
     
     local i = 1
     while true do
-        local name, rankStr = GetSpellName(i, BOOKTYPE_SPELL)
+        local name, rank, _, _, maxR = SpellInfo(i)
         if not name then break end
         
         if SimpleHeal:IsHealingSpell(name, class) then
-            local mana, min, max = SimpleHeal:ParseSpellTooltip(i)
-            if mana and min and max then
-                local range = 40
-                if type(SpellInfo) == "function" then
-                    local _, _, _, _, maxR = SpellInfo(i)
-                    if maxR and type(maxR) == "number" and maxR > 0 then range = maxR end
-                end
-
+            local mana, minVal, maxVal = SimpleHeal:ParseSpellTooltip(i)
+            if mana and minVal and maxVal then
                 table.insert(SimpleHeal.Spells, {
                     id = i,
                     name = name,
-                    rank = SimpleHeal:ExtractRank(rankStr),
+                    rank = SimpleHeal:ExtractRank(rank),
                     mana = mana,
-                    avg = (min + max) / 2,
-                    range = range
+                    avg = (minVal + maxVal) / 2,
+                    range = maxR or 40
                 })
             end
         end
 
-        -- Check for cleansing spells
         local dispels = SimpleHeal.DispelSpells[class]
         if dispels then
-            for dtype, dspell in pairs(dispels) do
-                if string.lower(name) == string.lower(dspell) then
-                    SimpleHeal.CleanseSpells[dtype] = name
+            for dtype, dlist in pairs(dispels) do
+                for _, dname in ipairs(dlist) do
+                    if string.lower(name) == string.lower(dname) then
+                        -- Store the first match Found (priority based on list order)
+                        if not SimpleHeal.CleanseSpells[dtype] then
+                            SimpleHeal.CleanseSpells[dtype] = name
+                        end
+                    end
                 end
             end
         end
