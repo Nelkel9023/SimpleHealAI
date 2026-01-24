@@ -174,47 +174,66 @@ function SimpleHeal:IsHealingSpell(name, class)
     return false
 end
 
+local BuffTextures = {
+    ["renew"] = "Interface\\Icons\\Spell_Holy_Renew",
+    ["rejuvenation"] = "Interface\\Icons\\Spell_Nature_Rejuvenation",
+    ["regrowth"] = "Interface\\Icons\\Spell_Nature_ResistNature",
+    ["power word: shield"] = "Interface\\Icons\\Spell_Holy_PowerWordShield",
+    ["weakened soul"] = "Interface\\Icons\\Spell_Holy_AshesToAshes",
+}
+
 function SimpleHeal:UnitHasBuff(unit, buffName)
-    local i = 1
     local bname = string.lower(buffName)
-    local tooltip = getglobal("SimpleHeal_Tooltip")
+    local targetTex = BuffTextures[bname]
+    
+    local i = 1
     while true do
-        local name = UnitBuff(unit, i)
-        if not name then break end
+        local tex = UnitBuff(unit, i)
+        if not tex then break end
+        if targetTex and tex == targetTex then return true end
         
-        tooltip:SetOwner(UIParent, "ANCHOR_NONE")
-        tooltip:ClearLines()
-        tooltip:SetUnitBuff(unit, i)
-        local text = getglobal("SimpleHeal_TooltipTextLeft1"):GetText()
-        if text and string.find(string.lower(text), bname) then 
+        -- Fallback for unknown textures
+        if not targetTex then
+            local tooltip = getglobal("SimpleHeal_Tooltip")
+            tooltip:SetOwner(UIParent, "ANCHOR_NONE")
+            tooltip:ClearLines()
+            tooltip:SetUnitBuff(unit, i)
+            local text = getglobal("SimpleHeal_TooltipTextLeft1"):GetText()
+            if text and string.find(string.lower(text), bname) then 
+                tooltip:Hide()
+                return true 
+            end
             tooltip:Hide()
-            return true 
         end
         i = i + 1
     end
-    tooltip:Hide()
     return false
 end
 
 function SimpleHeal:UnitHasDebuff(unit, debuffName)
-    local i = 1
     local dname = string.lower(debuffName)
-    local tooltip = getglobal("SimpleHeal_Tooltip")
+    local targetTex = BuffTextures[dname]
+    
+    local i = 1
     while true do
-        local name = UnitDebuff(unit, i)
-        if not name then break end
+        local tex = UnitDebuff(unit, i)
+        if not tex then break end
+        if targetTex and tex == targetTex then return true end
         
-        tooltip:SetOwner(UIParent, "ANCHOR_NONE")
-        tooltip:ClearLines()
-        tooltip:SetUnitDebuff(unit, i)
-        local text = getglobal("SimpleHeal_TooltipTextLeft1"):GetText()
-        if text and string.find(string.lower(text), dname) then 
+        if not targetTex then
+            local tooltip = getglobal("SimpleHeal_Tooltip")
+            tooltip:SetOwner(UIParent, "ANCHOR_NONE")
+            tooltip:ClearLines()
+            tooltip:SetUnitDebuff(unit, i)
+            local text = getglobal("SimpleHeal_TooltipTextLeft1"):GetText()
+            if text and string.find(string.lower(text), dname) then 
+                tooltip:Hide()
+                return true 
+            end
             tooltip:Hide()
-            return true 
         end
         i = i + 1
     end
-    tooltip:Hide()
     return false
 end
 
@@ -234,7 +253,7 @@ function SimpleHeal:ParseSpellTooltip(spellID)
     local line = getglobal("SimpleHeal_TooltipTextLeft2")
     if line then
         local text = line:GetText()
-        if text then
+        if text and string.find(text, "Mana") then
             local _, _, m = string.find(text, "(%d+) Mana")
             mana = tonumber(m)
         end
@@ -309,14 +328,14 @@ function SimpleHeal:FindBestTarget()
     local candidates = {}
     local threshold = (SimpleHeal_Saved and SimpleHeal_Saved.Threshold or 95) / 100
     
-    SimpleHeal:AddCandidate(candidates, "player")
-    local numParty = GetNumPartyMembers()
-    if numParty > 0 then
-        for i = 1, numParty do SimpleHeal:AddCandidate(candidates, "party" .. i) end
-    end
     local numRaid = GetNumRaidMembers()
     if numRaid > 0 then
         for i = 1, numRaid do SimpleHeal:AddCandidate(candidates, "raid" .. i) end
+    else
+        SimpleHeal:AddCandidate(candidates, "player")
+        for i = 1, GetNumPartyMembers() do 
+            SimpleHeal:AddCandidate(candidates, "party" .. i) 
+        end
     end
     
     SimpleHeal:AddCandidate(candidates, "target")
