@@ -5,11 +5,10 @@
     PRO CORE: Requires SuperWoW and UnitXP (SP3)
     
     Usage:
-        /heal        - Smart heal (lowest HP target, best efficiency)
-        /sheal       - (alias) Same as /heal
+        /heal           - Smart heal (lowest HP target, best efficiency)
         /heal emergency - Emergency heal (highest HPS rank)
-        /heal config - Open configuration menu
-        /heal scan   - Rescan spellbook for updated ranks
+        /heal config    - Open configuration menu
+        /heal scan      - Rescan spellbook for updated ranks
 ]]
 
 SimpleHeal = {
@@ -20,46 +19,28 @@ SimpleHeal = {
     LastAnnounce = "",
 }
 
-local hasSuperWoW = (SUPERWOW_VERSION ~= nil)
-local hasUnitXP = (type(UnitXP) == "function")
-local hasSpellInfo = (type(SpellInfo) == "function")
-
-function SimpleHeal:CheckDependencies()
-    if hasSuperWoW and hasUnitXP and hasSpellInfo then return true end
-    
-    local missing = {}
-    if not hasSuperWoW then table.insert(missing, "SuperWoW") end
-    if not hasUnitXP then table.insert(missing, "UnitXP") end
-    if not hasSpellInfo then table.insert(missing, "SpellInfo API") end
-    
-    DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal] ERROR: Missing mandatory dependencies: " .. table.concat(missing, ", ") .. "|r")
-    return false
-end
-
 -- Tables for dispelling logic (inspired by Rinse)
 SimpleHeal.DispelSpells = {
     PALADIN = { ["Magic"] = "Cleanse", ["Poison"] = "Cleanse", ["Disease"] = "Cleanse" },
     DRUID   = { ["Curse"] = "Remove Curse", ["Poison"] = "Abolish Poison" },
     PRIEST  = { ["Magic"] = "Dispel Magic", ["Disease"] = "Abolish Disease" },
     SHAMAN  = { ["Poison"] = "Cure Poison", ["Disease"] = "Cure Disease" },
-    MAGE    = { ["Curse"] = "Remove Lesser Curse" },
-    WARLOCK = { ["Magic"] = "Devour Magic" },
 }
 
 SimpleHeal.PendingHeals = {} -- { [guid] = timestamp }
 
-function SimpleHeal:GetUnitDistance(unit)
-    return UnitXP("distanceBetween", "player", unit)
+function SimpleHeal:CheckDependencies()
+    local missing = {}
+    if not SUPERWOW_VERSION then table.insert(missing, "SuperWoW") end
+    if type(UnitXP) ~= "function" then table.insert(missing, "UnitXP") end
+    if type(SpellInfo) ~= "function" then table.insert(missing, "SpellInfo API") end
+    
+    if table.getn(missing) > 0 then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal] ERROR: Missing mandatory dependencies: " .. table.concat(missing, ", ") .. "|r")
+        return false
+    end
+    return true
 end
-
-function SimpleHeal:IsInLineOfSight(unit)
-    local ok, los = pcall(UnitXP, "inSight", "player", unit)
-    return ok and los
-end
-
---[[ ================================================================
-    INITIALIZATION & SETTINGS
-================================================================ ]]
 
 function SimpleHeal:OnLoad()
     this:RegisterEvent("ADDON_LOADED")
@@ -146,8 +127,11 @@ function SimpleHeal:ScanSpells()
     SimpleHeal.CleanseSpells = {}
     
     local _, class = UnitClass("player")
-    local validClasses = {SHAMAN=1, PRIEST=1, PALADIN=1, DRUID=1, MAGE=1, WARLOCK=1}
-    if not validClasses[class] then return end
+    local validClasses = {SHAMAN=1, PRIEST=1, PALADIN=1, DRUID=1}
+    if not validClasses[class] then 
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r Player class " .. (class or "unknown") .. " not supported.")
+        return 
+    end
     
     local i = 1
     while true do
@@ -158,9 +142,9 @@ function SimpleHeal:ScanSpells()
             local mana, min, max = SimpleHeal:ParseSpellTooltip(i)
             if mana and min and max then
                 local range = 40
-                if hasSpellInfo then
-                    local sinfo = SpellInfo(i)
-                    if sinfo and sinfo.maxRange then range = sinfo.maxRange end
+                if type(SpellInfo) == "function" then
+                    local _, _, _, _, maxR = SpellInfo(i)
+                    if maxR and type(maxR) == "number" and maxR > 0 then range = maxR end
                 end
 
                 table.insert(SimpleHeal.Spells, {
@@ -175,8 +159,9 @@ function SimpleHeal:ScanSpells()
         end
 
         -- Check for cleansing spells
-        if SimpleHeal.DispelSpells[class] then
-            for dtype, dspell in pairs(SimpleHeal.DispelSpells[class]) do
+        local dispels = SimpleHeal.DispelSpells[class]
+        if dispels then
+            for dtype, dspell in pairs(dispels) do
                 if string.lower(name) == string.lower(dspell) then
                     SimpleHeal.CleanseSpells[dtype] = name
                 end
@@ -184,6 +169,7 @@ function SimpleHeal:ScanSpells()
         end
         
         i = i + 1
+        if i > 512 then break end
     end
     
     table.sort(SimpleHeal.Spells, function(a,b) 
@@ -192,12 +178,15 @@ function SimpleHeal:ScanSpells()
     end)
     
     local total = table.getn(SimpleHeal.Spells)
-    SimpleHeal.Ready = (total > 0 or (SimpleHeal.CleanseSpells and next(SimpleHeal.CleanseSpells) ~= nil))
+    local hasCleanse = false
+    for _ in pairs(SimpleHeal.CleanseSpells) do hasCleanse = true break end
+    
+    SimpleHeal.Ready = (total > 0 or hasCleanse)
     
     if SimpleHeal.Ready then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHeal]|r Scanned " .. total .. " spells.")
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHeal]|r Scanned " .. total .. " healing spells.")
     else
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r No healing or cleansing spells found!")
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r No healing spells found in your spellbook!")
     end
 end
 
@@ -302,7 +291,6 @@ function SimpleHeal:ParseSpellTooltip(spellID)
         if line then
             local text = line:GetText()
             if text then
-                -- Standard Heal: "Heals X to Y"
                 local _, _, min = string.find(text, "(%d+) to")
                 local _, _, max = string.find(text, "to (%d+)")
                 if min and max then
@@ -311,7 +299,6 @@ function SimpleHeal:ParseSpellTooltip(spellID)
                     break
                 end
                 
-                -- HoT: "Heals X over Y sec"
                 local _, _, hot = string.find(text, "Heals (%d+) over")
                 if hot then
                     minHeal = tonumber(hot)
@@ -319,7 +306,6 @@ function SimpleHeal:ParseSpellTooltip(spellID)
                     break
                 end
 
-                -- Shield: "absorbing X damage"
                 local _, _, absorb = string.find(text, "absorbing (%d+) damage")
                 if absorb then
                     minHeal = tonumber(absorb)
@@ -351,7 +337,6 @@ function SimpleHeal:DoHeal(isEmergency)
         return
     end
     
-    -- Check for dispellable debuffs first if health is high
     if SimpleHeal_Saved.EnableCleanse and target.ratio > 0.70 then
         local cleanseSpell = SimpleHeal:GetDispellableDebuff(target.unit)
         if cleanseSpell then
@@ -365,7 +350,6 @@ function SimpleHeal:DoHeal(isEmergency)
     local spellList = SimpleHeal.Spells
     
     if table.getn(spellList) == 0 then
-        -- Default message if NO spells are available (maybe all mana too high or none scanned)
         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r No healing spells available!")
         return
     end
@@ -381,8 +365,8 @@ function SimpleHeal:DoHeal(isEmergency)
 end
 
 function SimpleHeal:Cast(spell, unit)
-    local guid = UnitXP and UnitXP("guid", unit) or unit
-    SimpleHeal.PendingHeals[guid] = GetTime()
+    local _, guid = UnitExists(unit)
+    SimpleHeal.PendingHeals[guid or unit] = GetTime()
 
     local spellString = spell.name
     if spell.rank then
@@ -424,9 +408,7 @@ function SimpleHeal:AddCandidate(list, unit)
     if UnitIsPlayer(unit) and not UnitIsConnected(unit) then return end
     if not UnitIsFriend("player", unit) then return end
 
-    -- SuperWoW returns GUID as second value; dedupe by GUID if available
     if guid then
-        -- Incoming Heal Awareness (Item 5)
         local lastTime = SimpleHeal.PendingHeals[guid]
         if lastTime and (GetTime() - lastTime < 1.5) then return end
 
@@ -453,13 +435,13 @@ function SimpleHeal:CanReach(unit)
     if UnitIsUnit(unit, "player") then return true end
     
     if SimpleHeal_Saved and SimpleHeal_Saved.UseLOS then
-        if not SimpleHeal:IsInLineOfSight(unit) then return false end
+        local ok, los = pcall(UnitXP, "inSight", "player", unit)
+        if not ok or not los then return false end
     end
     
-    local dist = SimpleHeal:GetUnitDistance(unit)
+    local dist = UnitXP("distanceBetween", "player", unit)
     if not dist then return false end
 
-    -- Avoid indexing nil Spells if not scanned
     local testSpell = SimpleHeal.Spells and SimpleHeal.Spells[1]
     local maxR = (testSpell and testSpell.range) and testSpell.range or 40
     return dist <= maxR
@@ -473,8 +455,6 @@ function SimpleHeal:PickBestRank(spellList, deficit, unit, isEmergency)
     local playerMaxMana = maxManaVal or 1
     
     local mode = SimpleHeal_Saved and SimpleHeal_Saved.HealMode or 1
-    
-    -- Safe Mode (Item 4)
     if (playerMana / playerMaxMana) < 0.15 then
         mode = 1 -- Force Efficient
     end
@@ -486,9 +466,7 @@ function SimpleHeal:PickBestRank(spellList, deficit, unit, isEmergency)
         local isShield = string.find(name, "power word: shield")
         
         local skip = false
-        if spell.id and (not GetSpellName(spell.id, BOOKTYPE_SPELL)) then
-             skip = true
-        elseif spell.mana > playerMana then
+        if spell.mana > playerMana then
             skip = true
         elseif isHot and unit and SimpleHeal:UnitHasBuff(unit, spell.name) then
             skip = true
@@ -530,15 +508,10 @@ end
 function SimpleHeal:CheckManaNotify()
     if not SimpleHeal_Saved or not SimpleHeal_Saved.EnableLowManaNotify then return end
     local _, class = UnitClass("player")
-    local mana, maxMana
-    if class == "DRUID" then
-        local _, cm = UnitMana("player")
-        mana = cm or UnitMana("player")
-        maxMana = UnitManaMax("player")
-    else
-        mana = UnitMana("player")
-        maxMana = UnitManaMax("player")
-    end
+    local current, caster = UnitMana("player")
+    local mana = (class == "DRUID" and caster) and caster or current
+    local maxMana = UnitManaMax("player")
+    
     if not maxMana or maxMana == 0 then return end
     local manaPercent = (mana / maxMana) * 100
     local now = GetTime()
