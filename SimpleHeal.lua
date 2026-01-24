@@ -14,33 +14,10 @@
 SimpleHeal = {
     Ready = false,
     Spells = {},
-    CleanseSpells = {},
+    PendingHeals = {}, -- { [guid] = timestamp }
     LastManaNotify = 0,
     LastAnnounce = "",
 }
-
--- Tables for dispelling logic (inspired by Rinse)
-SimpleHeal.DispelSpells = {
-    PALADIN = { 
-        ["Magic"] = {"Cleanse"}, 
-        ["Poison"] = {"Cleanse", "Purify"}, 
-        ["Disease"] = {"Cleanse", "Purify"} 
-    },
-    DRUID   = { 
-        ["Curse"] = {"Remove Curse"}, 
-        ["Poison"] = {"Abolish Poison", "Cure Poison"} 
-    },
-    PRIEST  = { 
-        ["Magic"] = {"Dispel Magic"}, 
-        ["Disease"] = {"Abolish Disease", "Cure Disease"} 
-    },
-    SHAMAN  = { 
-        ["Poison"] = {"Cure Poison"}, 
-        ["Disease"] = {"Cure Disease"} 
-    },
-}
-
-SimpleHeal.PendingHeals = {} -- { [guid] = timestamp }
 
 function SimpleHeal:CheckDependencies()
     local missing = {}
@@ -89,11 +66,10 @@ function SimpleHeal:LoadSettings()
     if SimpleHeal_Saved.EnableLowManaNotify == nil then SimpleHeal_Saved.EnableLowManaNotify = true end
     if SimpleHeal_Saved.LowManaThreshold == nil then SimpleHeal_Saved.LowManaThreshold = 20 end
     if SimpleHeal_Saved.UseLOS == nil then SimpleHeal_Saved.UseLOS = true end
-    if SimpleHeal_Saved.EnableCleanse == nil then SimpleHeal_Saved.EnableCleanse = true end
     
     SimpleHeal.Ready = false
     SimpleHeal.Spells = {}
-    SimpleHeal.CleanseSpells = {}
+    SimpleHeal.PendingHeals = {}
     SimpleHeal.LastManaNotify = 0
     SimpleHeal.LastAnnounce = ""
 end
@@ -132,12 +108,11 @@ function SimpleHeal.SlashHandler(msg)
 end
 
 --[[ ================================================================
-    SPELL SCANNING
+    SPELL SCANNING (SUPERWOW BUILT-IN)
 ================================================================ ]]
 
 function SimpleHeal:ScanSpells()
     SimpleHeal.Spells = {}
-    SimpleHeal.CleanseSpells = {}
     
     local _, class = UnitClass("player")
     local validClasses = {SHAMAN=1, PRIEST=1, PALADIN=1, DRUID=1}
@@ -146,6 +121,7 @@ function SimpleHeal:ScanSpells()
         return 
     end
     
+    local numSpells = 0
     local i = 1
     while true do
         local name, rank, _, _, maxR = SpellInfo(i)
@@ -160,27 +136,12 @@ function SimpleHeal:ScanSpells()
                     rank = SimpleHeal:ExtractRank(rank),
                     mana = mana,
                     avg = (minVal + maxVal) / 2,
-                    range = maxR or 40
+                    range = (type(maxR) == "number" and maxR > 0) and maxR or 40
                 })
             end
         end
-
-        local dispels = SimpleHeal.DispelSpells[class]
-        if dispels then
-            for dtype, dlist in pairs(dispels) do
-                for _, dname in ipairs(dlist) do
-                    if string.lower(name) == string.lower(dname) then
-                        -- Store the first match Found (priority based on list order)
-                        if not SimpleHeal.CleanseSpells[dtype] then
-                            SimpleHeal.CleanseSpells[dtype] = name
-                        end
-                    end
-                end
-            end
-        end
-        
         i = i + 1
-        if i > 512 then break end
+        if i > 1000 then break end -- Hard limit
     end
     
     table.sort(SimpleHeal.Spells, function(a,b) 
@@ -189,10 +150,7 @@ function SimpleHeal:ScanSpells()
     end)
     
     local total = table.getn(SimpleHeal.Spells)
-    local hasCleanse = false
-    for _ in pairs(SimpleHeal.CleanseSpells) do hasCleanse = true break end
-    
-    SimpleHeal.Ready = (total > 0 or hasCleanse)
+    SimpleHeal.Ready = (total > 0)
     
     if SimpleHeal.Ready then
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHeal]|r Scanned " .. total .. " healing spells.")
@@ -227,7 +185,6 @@ function SimpleHeal:UnitHasBuff(unit, buffName)
         tooltip:ClearLines()
         tooltip:SetUnitBuff(unit, i)
         local text = getglobal("SimpleHeal_TooltipTextLeft1"):GetText()
-        
         if text and string.find(string.lower(text), bname) then 
             tooltip:Hide()
             return true 
@@ -250,7 +207,6 @@ function SimpleHeal:UnitHasDebuff(unit, debuffName)
         tooltip:ClearLines()
         tooltip:SetUnitDebuff(unit, i)
         local text = getglobal("SimpleHeal_TooltipTextLeft1"):GetText()
-        
         if text and string.find(string.lower(text), dname) then 
             tooltip:Hide()
             return true 
@@ -259,20 +215,6 @@ function SimpleHeal:UnitHasDebuff(unit, debuffName)
     end
     tooltip:Hide()
     return false
-end
-
-function SimpleHeal:GetDispellableDebuff(unit)
-    if not SimpleHeal_Saved.EnableCleanse then return nil end
-    local i = 1
-    while true do
-        local name, rank, texture, count, dtype = UnitDebuff(unit, i)
-        if not name then break end
-        if dtype and SimpleHeal.CleanseSpells[dtype] then
-            return SimpleHeal.CleanseSpells[dtype]
-        end
-        i = i + 1
-    end
-    return nil
 end
 
 function SimpleHeal:ExtractRank(rankStr)
@@ -297,7 +239,7 @@ function SimpleHeal:ParseSpellTooltip(spellID)
         end
     end
     
-    for j = 3, 8 do
+    for j = 3, 10 do
         local line = getglobal("SimpleHeal_TooltipTextLeft" .. j)
         if line then
             local text = line:GetText()
@@ -305,28 +247,22 @@ function SimpleHeal:ParseSpellTooltip(spellID)
                 local _, _, min = string.find(text, "(%d+) to")
                 local _, _, max = string.find(text, "to (%d+)")
                 if min and max then
-                    minHeal = tonumber(min)
-                    maxHeal = tonumber(max)
+                    minHeal, maxHeal = tonumber(min), tonumber(max)
                     break
                 end
-                
                 local _, _, hot = string.find(text, "Heals (%d+) over")
                 if hot then
-                    minHeal = tonumber(hot)
-                    maxHeal = tonumber(hot)
+                    minHeal, maxHeal = tonumber(hot), tonumber(hot)
                     break
                 end
-
                 local _, _, absorb = string.find(text, "absorbing (%d+) damage")
                 if absorb then
-                    minHeal = tonumber(absorb)
-                    maxHeal = tonumber(absorb)
+                    minHeal, maxHeal = tonumber(absorb), tonumber(absorb)
                     break
                 end
             end
         end
     end
-    
     tooltip:Hide()
     return mana, minHeal, maxHeal
 end
@@ -348,24 +284,9 @@ function SimpleHeal:DoHeal(isEmergency)
         return
     end
     
-    if SimpleHeal_Saved.EnableCleanse and target.ratio > 0.70 then
-        local cleanseSpell = SimpleHeal:GetDispellableDebuff(target.unit)
-        if cleanseSpell then
-            CastSpellByName(cleanseSpell, target.unit)
-            SimpleHeal:Announce(target.name, cleanseSpell)
-            return
-        end
-    end
-
     local deficit = target.max - target.current
-    local spellList = SimpleHeal.Spells
+    local spell = SimpleHeal:PickBestRank(SimpleHeal.Spells, deficit, target.unit, isEmergency)
     
-    if table.getn(spellList) == 0 then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r No healing spells available!")
-        return
-    end
-    
-    local spell = SimpleHeal:PickBestRank(spellList, deficit, target.unit, isEmergency)
     if not spell then
         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r Not enough mana!")
         return
@@ -378,11 +299,8 @@ end
 function SimpleHeal:Cast(spell, unit)
     local _, guid = UnitExists(unit)
     SimpleHeal.PendingHeals[guid or unit] = GetTime()
-
     local spellString = spell.name
-    if spell.rank then
-        spellString = spellString .. "(Rank " .. spell.rank .. ")"
-    end
+    if spell.rank then spellString = spellString .. "(Rank " .. spell.rank .. ")" end
     CastSpellByName(spellString, unit)
 end
 
@@ -399,7 +317,6 @@ function SimpleHeal:FindBestTarget()
     if numRaid > 0 then
         for i = 1, numRaid do SimpleHeal:AddCandidate(candidates, "raid" .. i) end
     end
-    
     SimpleHeal:AddCandidate(candidates, "target")
     
     local best = nil
@@ -422,7 +339,6 @@ function SimpleHeal:AddCandidate(list, unit)
     if guid then
         local lastTime = SimpleHeal.PendingHeals[guid]
         if lastTime and (GetTime() - lastTime < 1.5) then return end
-
         for _, c in ipairs(list) do
             if c.guid == guid then return end
         end
@@ -461,14 +377,11 @@ end
 function SimpleHeal:PickBestRank(spellList, deficit, unit, isEmergency)
     local currentMana, casterMana = UnitMana("player")
     local _, class = UnitClass("player")
-    local maxManaVal = UnitManaMax("player")
     local playerMana = (class == "DRUID" and casterMana) and casterMana or currentMana
-    local playerMaxMana = maxManaVal or 1
+    local playerMaxMana = UnitManaMax("player") or 1
     
     local mode = SimpleHeal_Saved and SimpleHeal_Saved.HealMode or 1
-    if (playerMana / playerMaxMana) < 0.15 then
-        mode = 1 -- Force Efficient
-    end
+    if (playerMana / playerMaxMana) < 0.15 then mode = 1 end
 
     local affordable = {}
     for _, spell in ipairs(spellList) do
@@ -489,13 +402,11 @@ function SimpleHeal:PickBestRank(spellList, deficit, unit, isEmergency)
                 if start > 0 and duration > 1.5 then skip = true end
             end
         end
-        
         if not skip then table.insert(affordable, spell) end
     end
     if table.getn(affordable) == 0 then return nil end
     
     table.sort(affordable, function(a,b) return a.rank < b.rank end)
-    
     if isEmergency then return affordable[table.getn(affordable)] end
 
     if mode == 1 then -- Efficient
@@ -556,7 +467,6 @@ function SimpleHeal:RefreshConfig()
     getglobal("SimpleHeal_MsgNew"):SetText(s.MsgMode == 2 and "|cff00ff00New|r" or "New")
     getglobal("SimpleHeal_ThreshSlider"):SetValue(s.Threshold)
     getglobal("SimpleHeal_ThreshSliderText"):SetText(s.Threshold .. "%")
-    getglobal("SimpleHeal_ModeCleanseCheck"):SetChecked(s.EnableCleanse)
     getglobal("SimpleHeal_LowManaCheck"):SetChecked(s.EnableLowManaNotify)
     getglobal("SimpleHeal_LowManaSlider"):SetValue(s.LowManaThreshold)
     getglobal("SimpleHeal_LowManaSliderText"):SetText(s.LowManaThreshold .. "%")
@@ -568,4 +478,3 @@ function SimpleHeal:SetMsgMode(m) SimpleHeal_Saved.MsgMode = m SimpleHeal:Refres
 function SimpleHeal:OnThresholdChange(v) SimpleHeal_Saved.Threshold = math.floor(v) getglobal("SimpleHeal_ThreshSliderText"):SetText(SimpleHeal_Saved.Threshold .. "%") end
 function SimpleHeal:ToggleLowManaNotify() SimpleHeal_Saved.EnableLowManaNotify = not SimpleHeal_Saved.EnableLowManaNotify SimpleHeal:RefreshConfig() end
 function SimpleHeal:OnLowManaThresholdChange(v) SimpleHeal_Saved.LowManaThreshold = math.floor(v) getglobal("SimpleHeal_LowManaSliderText"):SetText(SimpleHeal_Saved.LowManaThreshold .. "%") end
-function SimpleHeal:ToggleCleanse() SimpleHeal_Saved.EnableCleanse = not SimpleHeal_Saved.EnableCleanse SimpleHeal:RefreshConfig() end

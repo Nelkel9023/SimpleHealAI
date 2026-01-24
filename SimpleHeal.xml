@@ -14,7 +14,7 @@
 
     <!-- Config frame -->
     <Frame name="SimpleHeal_ConfigFrame" toplevel="true" movable="true" enableMouse="true" frameStrata="DIALOG" hidden="true">
-        <Size><AbsDimension x="240" y="420"/></Size>
+        <Size><AbsDimension x="240" y="380"/></Size>
         <Anchors><Anchor point="CENTER"/></Anchors>
         <Backdrop bgFile="Interface\DialogFrame\UI-DialogBox-Background" edgeFile="Interface\DialogFrame\UI-DialogBox-Border" tile="true">
             <BackgroundInsets><AbsInset left="11" right="12" top="12" bottom="11"/></BackgroundInsets>
@@ -32,7 +32,6 @@
             <Button name="SimpleHeal_CloseBtn" inherits="UIPanelCloseButton">
                 <Anchors><Anchor point="TOPRIGHT"><Offset><AbsDimension x="-5" y="-5"/></Offset></Anchor></Anchors>
             </Button>
-
             <!-- Heal Mode -->
             <FontString name="SimpleHeal_ModeLabel" inherits="GameFontNormal" text="Heal Mode:">
                 <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-45"/></Offset></Anchor></Anchors>
@@ -56,7 +55,7 @@
                 </Scripts>
             </Button>
 
-            <!-- Toggles (LOS & Cleanse) -->
+            <!-- Toggles (LOS) -->
             <CheckButton name="SimpleHeal_ModeLOSCheck" inherits="OptionsCheckButtonTemplate">
                 <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-100"/></Offset></Anchor></Anchors>
                 <Scripts>
@@ -69,25 +68,13 @@
                 <Anchors><Anchor point="LEFT" relativeTo="SimpleHeal_ModeLOSCheck" relativePoint="RIGHT"><Offset><AbsDimension x="5" y="0"/></Offset></Anchor></Anchors>
             </FontString>
 
-            <CheckButton name="SimpleHeal_ModeCleanseCheck" inherits="OptionsCheckButtonTemplate">
-                <Anchors><Anchor point="TOPLEFT" relativeTo="SimpleHeal_ModeLOSCheck" relativePoint="BOTTOMLEFT"><Offset><AbsDimension x="0" y="0"/></Offset></Anchor></Anchors>
-                <Scripts>
-                    <OnClick>SimpleHeal:ToggleCleanse();</OnClick>
-                    <OnEnter>SimpleHeal:ShowTooltip("Prioritize cleansing dispellable debuffs.");</OnEnter>
-                    <OnLeave>GameTooltip:Hide();</OnLeave>
-                </Scripts>
-            </CheckButton>
-            <FontString name="SimpleHeal_ModeCleanseLabel" inherits="GameFontNormal" text="Enable Cleansing">
-                <Anchors><Anchor point="LEFT" relativeTo="SimpleHeal_ModeCleanseCheck" relativePoint="RIGHT"><Offset><AbsDimension x="5" y="0"/></Offset></Anchor></Anchors>
-            </FontString>
-
             <!-- Message Mode -->
             <FontString name="SimpleHeal_MsgLabel" inherits="GameFontNormal" text="Chat Messages:">
-                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-170"/></Offset></Anchor></Anchors>
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-140"/></Offset></Anchor></Anchors>
             </FontString>
             <Button name="SimpleHeal_MsgOff" inherits="UIPanelButtonTemplate" text="Off">
                 <Size><AbsDimension x="65" y="24"/></Size>
-                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-186"/></Offset></Anchor></Anchors>
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-156"/></Offset></Anchor></Anchors>
                 <Scripts>
                     <OnClick>SimpleHeal:SetMsgMode(0);</OnClick>
                     <OnEnter>SimpleHeal:ShowTooltip("No chat messages.");</OnEnter>
@@ -115,11 +102,11 @@
 
             <!-- Threshold slider -->
             <FontString name="SimpleHeal_ThreshLabel" inherits="GameFontNormal" text="Heal Threshold:">
-                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-225"/></Offset></Anchor></Anchors>
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-195"/></Offset></Anchor></Anchors>
             </FontString>
             <Slider name="SimpleHeal_ThreshSlider" inherits="OptionsSliderTemplate" minValue="50" maxValue="99" valueStep="5">
                 <Size><AbsDimension x="200" y="16"/></Size>
-                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-248"/></Offset></Anchor></Anchors>
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-218"/></Offset></Anchor></Anchors>
                 <Scripts>
                     <OnValueChanged>SimpleHeal:OnThresholdChange(this:GetValue());</OnValueChanged>
                     <OnEnter>SimpleHeal:ShowTooltip("Heal units below this HP percentage.");</OnEnter>
@@ -129,7 +116,7 @@
 
             <!-- Low Mana Notification -->
             <CheckButton name="SimpleHeal_LowManaCheck" inherits="OptionsCheckButtonTemplate">
-                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-285"/></Offset></Anchor></Anchors>
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-255"/></Offset></Anchor></Anchors>
                 <Scripts>
                     <OnClick>SimpleHeal:ToggleLowManaNotify();</OnClick>
                     <OnEnter>SimpleHeal:ShowTooltip("Trigger /oom emote when mana is low.");</OnEnter>
@@ -141,11 +128,11 @@
             </FontString>
 
             <FontString name="SimpleHeal_LowManaThreshLabel" inherits="GameFontNormal" text="Mana Threshold:">
-                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-320"/></Offset></Anchor></Anchors>
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-290"/></Offset></Anchor></Anchors>
             </FontString>
             <Slider name="SimpleHeal_LowManaSlider" inherits="OptionsSliderTemplate" minValue="5" maxValue="50" valueStep="5">
                 <Size><AbsDimension x="200" y="16"/></Size>
-                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-343"/></Offset></Anchor></Anchors>
+                <Anchors><Anchor point="TOPLEFT"><Offset><AbsDimension x="20" y="-313"/></Offset></Anchor></Anchors>
                 <Scripts>
                     <OnValueChanged>SimpleHeal:OnLowManaThresholdChange(this:GetValue());</OnValueChanged>
                     <OnEnter>SimpleHeal:ShowTooltip("Emote threshold percentage.");</OnEnter>
