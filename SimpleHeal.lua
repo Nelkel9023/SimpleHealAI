@@ -128,7 +128,7 @@ function SimpleHeal:ScanSpells()
         if not name then break end
         
         if SimpleHeal:IsHealingSpell(name, class) then
-            local _, _, _, _, _, maxR = SpellInfo(i)
+            local _, _, _, _, maxR = SpellInfo(i)
             local mana, minVal, maxVal = SimpleHeal:ParseSpellTooltip(i)
             
             if mana and minVal and maxVal then
@@ -317,6 +317,10 @@ function SimpleHeal:FindBestTarget()
     if numRaid > 0 then
         for i = 1, numRaid do SimpleHeal:AddCandidate(candidates, "raid" .. i) end
     end
+    
+    -- SuperWoW: Add raid markers as potential units
+    for i = 1, 8 do SimpleHeal:AddCandidate(candidates, "mark" .. i) end
+
     SimpleHeal:AddCandidate(candidates, "target")
     
     local best = nil
