@@ -48,9 +48,7 @@ function SimpleHeal:OnEvent(event)
     if event == "ADDON_LOADED" and arg1 == "SimpleHeal" then
         SimpleHeal:LoadSettings()
     elseif event == "PLAYER_ENTERING_WORLD" or event == "SPELLS_CHANGED" then
-        if SimpleHeal:CheckDependencies() then
-            SimpleHeal:ScanSpells()
-        else
+        if not SimpleHeal:CheckDependencies() then
             SimpleHeal.Ready = false
         end
     elseif event == "UNIT_MANA" or event == "UNIT_MAXMANA" then
@@ -67,8 +65,8 @@ function SimpleHeal:LoadSettings()
     if SimpleHeal_Saved.LowManaThreshold == nil then SimpleHeal_Saved.LowManaThreshold = 20 end
     if SimpleHeal_Saved.UseLOS == nil then SimpleHeal_Saved.UseLOS = true end
     
-    SimpleHeal.Ready = false
-    SimpleHeal.Spells = {}
+    SimpleHeal.Spells = SimpleHeal_Saved.Spells or {}
+    SimpleHeal.Ready = (table.getn(SimpleHeal.Spells) > 0)
     SimpleHeal.PendingHeals = {}
     SimpleHeal.LastManaNotify = 0
     SimpleHeal.LastAnnounce = ""
@@ -111,23 +109,49 @@ end
     SPELL SCANNING (SUPERWOW BUILT-IN)
 ================================================================ ]]
 
+local HealingSpells = {
+    ["SHAMAN"] = { ["healing wave"] = true, ["chain heal"] = true, ["lesser healing wave"] = true },
+    ["PRIEST"] = { ["flash heal"] = true, ["greater heal"] = true, ["heal"] = true, ["lesser heal"] = true, ["prayer of healing"] = true, ["renew"] = true, ["power word: shield"] = true },
+    ["PALADIN"] = { ["flash of light"] = true, ["holy light"] = true, ["holy shock"] = true },
+    ["DRUID"] = { ["regrowth"] = true, ["healing touch"] = true, ["rejuvenation"] = true },
+}
+
 function SimpleHeal:ScanSpells()
     SimpleHeal.Spells = {}
     
     local _, class = UnitClass("player")
-    local validClasses = {SHAMAN=1, PRIEST=1, PALADIN=1, DRUID=1}
-    if not validClasses[class] then return end
+    local classSpells = HealingSpells[class]
+    if not classSpells then 
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r Error: Unsupported class " .. (class or "nil"))
+        return 
+    end
     
-    local name, rank, _
-    local totalSpells = 0
-    local _, _, _, lastOffset = GetSpellTabInfo(GetNumSpellTabs())
-    if not lastOffset or lastOffset == 0 then lastOffset = 200 end
+    -- Debug: Start scanning
+    -- DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHeal]|r Scanning spellbook for " .. class .. "...")
 
-    for i = 1, lastOffset do
-        name, rank, spellID = GetSpellName(i, BOOKTYPE_SPELL)
+    local totalSpells = 0
+    local numTabs = GetNumSpellTabs()
+    local _, _, offset, numSlots = GetSpellTabInfo(numTabs)
+    local lastIndex = (offset or 0) + (numSlots or 0)
+    if lastIndex == 0 then lastIndex = 300 end -- Fallback
+
+    for i = 1, lastIndex do
+        local name, rank, spellID = GetSpellName(i, BOOKTYPE_SPELL)
         if not name then break end
         
-        if SimpleHeal:IsHealingSpell(name, class) then
+        local lowName = string.lower(name)
+        local isMatch = false
+        
+        -- Use partial match for safety with lookup
+        for key, _ in pairs(classSpells) do
+            if string.find(lowName, key) then
+                isMatch = true
+                break
+            end
+        end
+
+        if isMatch then
+            -- SuperWoW SpellInfo returns: name, rank, texture, minRange, maxRange
             local _, _, _, _, maxR = SpellInfo(spellID or 0)
             local mana, minVal, maxVal = SimpleHeal:ParseSpellTooltip(i)
             
@@ -141,6 +165,8 @@ function SimpleHeal:ScanSpells()
                     avg = (minVal + maxVal) / 2,
                     range = (type(maxR) == "number" and maxR > 0) and maxR or 40
                 })
+                totalSpells = totalSpells + 1
+                -- DEFAULT_CHAT_FRAME:AddMessage("|cffddffdd[SimpleHeal]|r Found: " .. name .. " (Rank " .. SimpleHeal:ExtractRank(rank) .. ")")
             end
         end
     end
@@ -150,60 +176,26 @@ function SimpleHeal:ScanSpells()
         return a.rank < b.rank 
     end)
     
-    local total = table.getn(SimpleHeal.Spells)
-    SimpleHeal.Ready = (total > 0)
+    SimpleHeal_Saved.Spells = SimpleHeal.Spells
+    SimpleHeal.Ready = (totalSpells > 0)
     
     if SimpleHeal.Ready then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHeal]|r Scanned " .. total .. " healing spells.")
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHeal]|r Scanned " .. totalSpells .. " healing spells.")
     else
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r No healing spells found!")
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r No healing spells found! Make sure you are a healer and have spells in your book.")
     end
 end
-
-function SimpleHeal:IsHealingSpell(name, class)
-    local n = string.lower(name)
-    if class == "SHAMAN" then
-        return string.find(n, "healing wave") or string.find(n, "chain heal") or string.find(n, "lesser healing wave")
-    elseif class == "PRIEST" then
-        return string.find(n, "flash heal") or string.find(n, "greater heal") or n == "heal" or string.find(n, "lesser heal") or string.find(n, "prayer of healing") or string.find(n, "renew") or string.find(n, "power word: shield")
-    elseif class == "PALADIN" then
-        return string.find(n, "flash of light") or string.find(n, "holy light") or string.find(n, "holy shock")
-    elseif class == "DRUID" then
-        return string.find(n, "regrowth") or string.find(n, "healing touch") or string.find(n, "rejuvenation")
-    end
-    return false
-end
-
-local BuffTextures = {
-    ["renew"] = "Interface\\Icons\\Spell_Holy_Renew",
-    ["rejuvenation"] = "Interface\\Icons\\Spell_Nature_Rejuvenation",
-    ["regrowth"] = "Interface\\Icons\\Spell_Nature_ResistNature",
-    ["power word: shield"] = "Interface\\Icons\\Spell_Holy_PowerWordShield",
-    ["weakened soul"] = "Interface\\Icons\\Spell_Holy_AshesToAshes",
-}
 
 function SimpleHeal:UnitHasBuff(unit, buffName)
     local bname = string.lower(buffName)
-    local targetTex = BuffTextures[bname]
-    
     local i = 1
     while true do
-        local tex = UnitBuff(unit, i)
+        local tex, _, _, auraID = UnitBuff(unit, i)
         if not tex then break end
-        if targetTex and tex == targetTex then return true end
         
-        -- Fallback for unknown textures
-        if not targetTex then
-            local tooltip = getglobal("SimpleHeal_Tooltip")
-            tooltip:SetOwner(UIParent, "ANCHOR_NONE")
-            tooltip:ClearLines()
-            tooltip:SetUnitBuff(unit, i)
-            local text = getglobal("SimpleHeal_TooltipTextLeft1"):GetText()
-            if text and string.find(string.lower(text), bname) then 
-                tooltip:Hide()
-                return true 
-            end
-            tooltip:Hide()
+        if auraID then
+            local name = SpellInfo(auraID)
+            if name and string.lower(name) == bname then return true end
         end
         i = i + 1
     end
@@ -212,25 +204,14 @@ end
 
 function SimpleHeal:UnitHasDebuff(unit, debuffName)
     local dname = string.lower(debuffName)
-    local targetTex = BuffTextures[dname]
-    
     local i = 1
     while true do
-        local tex = UnitDebuff(unit, i)
+        local tex, _, _, auraID = UnitDebuff(unit, i)
         if not tex then break end
-        if targetTex and tex == targetTex then return true end
         
-        if not targetTex then
-            local tooltip = getglobal("SimpleHeal_Tooltip")
-            tooltip:SetOwner(UIParent, "ANCHOR_NONE")
-            tooltip:ClearLines()
-            tooltip:SetUnitDebuff(unit, i)
-            local text = getglobal("SimpleHeal_TooltipTextLeft1"):GetText()
-            if text and string.find(string.lower(text), dname) then 
-                tooltip:Hide()
-                return true 
-            end
-            tooltip:Hide()
+        if auraID then
+            local name = SpellInfo(auraID)
+            if name and string.lower(name) == dname then return true end
         end
         i = i + 1
     end
