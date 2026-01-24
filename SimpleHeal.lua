@@ -116,19 +116,21 @@ function SimpleHeal:ScanSpells()
     
     local _, class = UnitClass("player")
     local validClasses = {SHAMAN=1, PRIEST=1, PALADIN=1, DRUID=1}
-    if not validClasses[class] then 
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r Player class " .. (class or "unknown") .. " not supported.")
-        return 
-    end
+    if not validClasses[class] then return end
     
-    local numSpells = 0
-    local i = 1
-    while true do
-        local name, rank, _, _, maxR = SpellInfo(i)
+    local name, rank, _
+    local totalSpells = 0
+    local _, _, _, lastOffset = GetSpellTabInfo(GetNumSpellTabs())
+    if not lastOffset or lastOffset == 0 then lastOffset = 200 end
+
+    for i = 1, lastOffset do
+        name, rank = GetSpellName(i, BOOKTYPE_SPELL)
         if not name then break end
         
         if SimpleHeal:IsHealingSpell(name, class) then
+            local _, _, _, _, _, maxR = SpellInfo(i)
             local mana, minVal, maxVal = SimpleHeal:ParseSpellTooltip(i)
+            
             if mana and minVal and maxVal then
                 table.insert(SimpleHeal.Spells, {
                     id = i,
@@ -140,8 +142,6 @@ function SimpleHeal:ScanSpells()
                 })
             end
         end
-        i = i + 1
-        if i > 1000 then break end -- Hard limit
     end
     
     table.sort(SimpleHeal.Spells, function(a,b) 
@@ -155,7 +155,7 @@ function SimpleHeal:ScanSpells()
     if SimpleHeal.Ready then
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHeal]|r Scanned " .. total .. " healing spells.")
     else
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r No healing spells found in your spellbook!")
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r No healing spells found!")
     end
 end
 
@@ -219,7 +219,7 @@ end
 
 function SimpleHeal:ExtractRank(rankStr)
     if not rankStr then return 1 end
-    local _, _, num = string.find(rankStr, "(%d+)")
+    local _, _, num = string.find(tostring(rankStr), "(%d+)")
     return tonumber(num) or 1
 end
 
@@ -230,9 +230,9 @@ function SimpleHeal:ParseSpellTooltip(spellID)
     tooltip:SetSpell(spellID, BOOKTYPE_SPELL)
     
     local mana, minHeal, maxHeal
-    local line2 = getglobal("SimpleHeal_TooltipTextLeft2")
-    if line2 then
-        local text = line2:GetText()
+    local line = getglobal("SimpleHeal_TooltipTextLeft2")
+    if line then
+        local text = line:GetText()
         if text then
             local _, _, m = string.find(text, "(%d+) Mana")
             mana = tonumber(m)
@@ -240,24 +240,24 @@ function SimpleHeal:ParseSpellTooltip(spellID)
     end
     
     for j = 3, 10 do
-        local line = getglobal("SimpleHeal_TooltipTextLeft" .. j)
+        line = getglobal("SimpleHeal_TooltipTextLeft" .. j)
         if line then
             local text = line:GetText()
             if text then
-                local _, _, min = string.find(text, "(%d+) to")
+                local _, _, min = string.find(text, "Heals.+ (%d+) to")
                 local _, _, max = string.find(text, "to (%d+)")
-                if min and max then
+                if not (min and max) then
+                    _, _, min = string.find(text, "Heals (%d+)")
+                    max = min
+                end
+                
+                if not min then
+                    _, _, min = string.find(text, "absorbing (%d+)")
+                    max = min
+                end
+
+                if min then
                     minHeal, maxHeal = tonumber(min), tonumber(max)
-                    break
-                end
-                local _, _, hot = string.find(text, "Heals (%d+) over")
-                if hot then
-                    minHeal, maxHeal = tonumber(hot), tonumber(hot)
-                    break
-                end
-                local _, _, absorb = string.find(text, "absorbing (%d+) damage")
-                if absorb then
-                    minHeal, maxHeal = tonumber(absorb), tonumber(absorb)
                     break
                 end
             end
