@@ -1,7 +1,7 @@
 ## Interface: 11200
-## Title: SimpleHealAI
+## Title: SimpleHeal
 ## Notes: Auto-target, auto-rank healing addon for all healer classes
 ## Version: 1.0
-## SavedVariables: SimpleHealAI_Saved
+## SavedVariables: SimpleHeal_Saved
 
-SimpleHealAI.xml
+SimpleHeal.xml
