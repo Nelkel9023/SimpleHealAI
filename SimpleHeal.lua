@@ -124,16 +124,17 @@ function SimpleHeal:ScanSpells()
     if not lastOffset or lastOffset == 0 then lastOffset = 200 end
 
     for i = 1, lastOffset do
-        name, rank = GetSpellName(i, BOOKTYPE_SPELL)
+        name, rank, spellID = GetSpellName(i, BOOKTYPE_SPELL)
         if not name then break end
         
         if SimpleHeal:IsHealingSpell(name, class) then
-            local _, _, _, _, maxR = SpellInfo(i)
+            local _, _, _, _, maxR = SpellInfo(spellID or 0)
             local mana, minVal, maxVal = SimpleHeal:ParseSpellTooltip(i)
             
             if mana and minVal and maxVal then
                 table.insert(SimpleHeal.Spells, {
                     id = i,
+                    spellID = spellID,
                     name = name,
                     rank = SimpleHeal:ExtractRank(rank),
                     mana = mana,
@@ -162,7 +163,7 @@ end
 function SimpleHeal:IsHealingSpell(name, class)
     local n = string.lower(name)
     if class == "SHAMAN" then
-        return string.find(n, "healing wave") or string.find(n, "chain heal")
+        return string.find(n, "healing wave") or string.find(n, "chain heal") or string.find(n, "lesser healing wave")
     elseif class == "PRIEST" then
         return string.find(n, "flash heal") or string.find(n, "greater heal") or n == "heal" or string.find(n, "lesser heal") or string.find(n, "prayer of healing") or string.find(n, "renew") or string.find(n, "power word: shield")
     elseif class == "PALADIN" then
@@ -318,9 +319,6 @@ function SimpleHeal:FindBestTarget()
         for i = 1, numRaid do SimpleHeal:AddCandidate(candidates, "raid" .. i) end
     end
     
-    -- SuperWoW: Add raid markers as potential units
-    for i = 1, 8 do SimpleHeal:AddCandidate(candidates, "mark" .. i) end
-
     SimpleHeal:AddCandidate(candidates, "target")
     
     local best = nil
