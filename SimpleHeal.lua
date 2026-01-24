@@ -368,11 +368,21 @@ function SimpleHeal:CanReach(unit)
         if not ok or not los then return false end
     end
     
+    local firstSpell = SimpleHeal.Spells and SimpleHeal.Spells[1]
+    if not firstSpell then return false end
+
+    -- Nampower: IsSpellInRange(spellId/Name, [target]) -> 1 (in-range), 0 (out), -1 (invalid)
+    if IsSpellInRange then
+        local inRange = IsSpellInRange(firstSpell.spellID, unit)
+        if inRange == 1 then return true end
+        if inRange == 0 then return false end
+    end
+
+    -- Fallback to UnitXP distance
     local dist = UnitXP("distanceBetween", "player", unit)
     if not dist then return false end
 
-    local testSpell = SimpleHeal.Spells and SimpleHeal.Spells[1]
-    local maxR = (testSpell and testSpell.range) and testSpell.range or 40
+    local maxR = firstSpell.range or 40
     return dist <= maxR
 end
 
@@ -392,16 +402,32 @@ function SimpleHeal:PickBestRank(spellList, deficit, unit, isEmergency)
         local isShield = string.find(name, "power word: shield")
         
         local skip = false
-        if spell.mana > playerMana then
+        
+        -- Nampower: IsSpellUsable(spellId/Name) -> usable, outOfMana
+        if IsSpellUsable then
+            local usable, oom = IsSpellUsable(spell.spellID)
+            if oom or not usable then skip = true end
+        elseif spell.mana > playerMana then
             skip = true
-        elseif isHot and unit and SimpleHeal:UnitHasBuff(unit, spell.name) then
-            skip = true
-        elseif isShield then
-            if unit and (SimpleHeal:UnitHasBuff(unit, "Power Word: Shield") or SimpleHeal:UnitHasDebuff(unit, "Weakened Soul")) then
+        end
+
+        if not skip then
+            if isHot and unit and SimpleHeal:UnitHasBuff(unit, spell.name) then
                 skip = true
-            else
-                local start, duration = GetSpellCooldown(spell.id, BOOKTYPE_SPELL)
-                if start > 0 and duration > 1.5 then skip = true end
+            elseif isShield then
+                if unit and (SimpleHeal:UnitHasBuff(unit, "Power Word: Shield") or SimpleHeal:UnitHasDebuff(unit, "Weakened Soul")) then
+                    skip = true
+                else
+                    -- Nampower: GetSpellIdCooldown(spellId) -> {startTime, duration, enabled}
+                    local start, duration
+                    if GetSpellIdCooldown then
+                        local cd = GetSpellIdCooldown(spell.spellID)
+                        start, duration = cd.startTime, cd.duration
+                    else
+                        start, duration = GetSpellCooldown(spell.id, BOOKTYPE_SPELL)
+                    end
+                    if start and start > 0 and duration > 1.5 then skip = true end
+                end
             end
         end
         if not skip then table.insert(affordable, spell) end
