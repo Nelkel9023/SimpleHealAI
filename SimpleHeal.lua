@@ -17,6 +17,9 @@ SimpleHeal = {
     PendingHeals = {}, -- { [guid] = timestamp }
     LastManaNotify = 0,
     LastAnnounce = "",
+    LastNoHealMessage = 0,
+    LastManaMessage = 0,
+    LastNoSpellsMessage = 0,
 }
 
 function SimpleHeal:CheckDependencies()
@@ -70,6 +73,9 @@ function SimpleHeal:LoadSettings()
     SimpleHeal.PendingHeals = {}
     SimpleHeal.LastManaNotify = 0
     SimpleHeal.LastAnnounce = ""
+    SimpleHeal.LastNoHealMessage = 0
+    SimpleHeal.LastManaMessage = 0
+    SimpleHeal.LastNoSpellsMessage = 0
 end
 
 function SimpleHeal:Announce(targetName, spellName, rank)
@@ -275,13 +281,21 @@ end
 function SimpleHeal:DoHeal(isEmergency)
     if not SimpleHeal.Ready then
         if not SimpleHeal:CheckDependencies() then return end
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r No spells found. Use /heal scan")
+        local now = GetTime()
+        if now - SimpleHeal.LastNoSpellsMessage > 30 then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r No spells found. Use /heal scan")
+            SimpleHeal.LastNoSpellsMessage = now
+        end
         return
     end
     
     local target = SimpleHeal:FindBestTarget()
     if not target then
-        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHeal]|r No one needs healing.")
+        local now = GetTime()
+        if now - SimpleHeal.LastNoHealMessage > 10 then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHeal]|r No one needs healing.")
+            SimpleHeal.LastNoHealMessage = now
+        end
         return
     end
     
@@ -289,7 +303,11 @@ function SimpleHeal:DoHeal(isEmergency)
     local spell = SimpleHeal:PickBestRank(SimpleHeal.Spells, deficit, target.unit, isEmergency)
     
     if not spell then
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r Not enough mana!")
+        local now = GetTime()
+        if now - SimpleHeal.LastManaMessage > 10 then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r Not enough mana!")
+            SimpleHeal.LastManaMessage = now
+        end
         return
     end
     
