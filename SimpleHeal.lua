@@ -310,6 +310,8 @@ function SimpleHeal:ParseSpellTooltip(spellID)
     if line then
         local text = line:GetText()
         if text then
+            -- Debug: Show what we're trying to parse
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[TOOLTIP]|r Mana line: " .. text)
             -- Try multiple mana patterns
             local _, _, m = string.find(text, "(%d+) Mana")
             if not m then
@@ -319,6 +321,7 @@ function SimpleHeal:ParseSpellTooltip(spellID)
                 _, _, m = string.find(text, "(%d+) to (%d+) Mana")
             end
             mana = tonumber(m)
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[TOOLTIP]|r Parsed mana: " .. tostring(mana))
         end
     end
     
@@ -599,8 +602,18 @@ function SimpleHeal:PickBestRank(spellList, deficit, unit, isEmergency)
         
         -- Use Nampower's enhanced spell usability checking
         if IsSpellUsable then
-            local usable, outOfMana = IsSpellUsable(spell.spellID)
-            if outOfMana or not usable then skip = true end
+            local usable, outOfMana
+            -- Try with spellID first, then fallback to spell name
+            if spell.spellID and spell.spellID > 0 then
+                usable, outOfMana = IsSpellUsable(spell.spellID)
+            else
+                usable, outOfMana = IsSpellUsable(spell.name)
+            end
+            -- Debug: Show spell usability info
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[DEBUG]|r " .. spell.name .. " - Usable: " .. tostring(usable) .. ", OOM: " .. tostring(outOfMana) .. ", Mana: " .. spell.mana .. "/" .. playerMana)
+            if outOfMana or not usable then 
+                skip = true 
+            end
         elseif spell.mana > playerMana then
             skip = true
         end
@@ -627,7 +640,22 @@ function SimpleHeal:PickBestRank(spellList, deficit, unit, isEmergency)
         end
         if not skip then table.insert(affordable, spell) end
     end
-    if table.getn(affordable) == 0 then return nil end
+    if table.getn(affordable) == 0 then 
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[DEBUG]|r No affordable spells found!")
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[DEBUG]|r Player mana: " .. playerMana .. "/" .. playerMaxMana)
+        for _, spell in ipairs(spellList) do
+            local usable, outOfMana = "N/A", "N/A"
+            if IsSpellUsable then
+                if spell.spellID and spell.spellID > 0 then
+                    usable, outOfMana = IsSpellUsable(spell.spellID)
+                else
+                    usable, outOfMana = IsSpellUsable(spell.name)
+                end
+            end
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[DEBUG]|r " .. spell.name .. " - Mana: " .. spell.mana .. ", Usable: " .. tostring(usable) .. ", OOM: " .. tostring(outOfMana))
+        end
+        return nil 
+    end
     
     table.sort(affordable, function(a,b) return a.rank < b.rank end)
     if isEmergency then return affordable[table.getn(affordable)] end
