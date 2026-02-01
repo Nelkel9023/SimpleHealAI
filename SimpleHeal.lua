@@ -20,6 +20,7 @@ SimpleHeal = {
     LastNoHealMessage = 0,
     LastManaMessage = 0,
     LastNoSpellsMessage = 0,
+    DebugMode = false, -- Debug toggle
 }
 
 function SimpleHeal:CheckDependencies()
@@ -102,8 +103,13 @@ function SimpleHeal.SlashHandler(msg)
         DEFAULT_CHAT_FRAME:AddMessage("  /heal emergency - Emergency heal (HPS focus)")
         DEFAULT_CHAT_FRAME:AddMessage("  /heal config - Options")
         DEFAULT_CHAT_FRAME:AddMessage("  /heal scan - Manual spell scan")
+        DEFAULT_CHAT_FRAME:AddMessage("  /heal debug - Toggle debug mode")
     elseif msg == "scan" then
         SimpleHeal:ScanSpells()
+    elseif msg == "debug" then
+        SimpleHeal.DebugMode = not SimpleHeal.DebugMode
+        local status = SimpleHeal.DebugMode and "|cff00ff00ON|r" or "|cffff0000OFF|r"
+        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHeal]|r Debug mode: " .. status)
     elseif msg == "config" then
         SimpleHeal:ToggleConfig()
     elseif msg == "emergency" then
@@ -161,11 +167,6 @@ function SimpleHeal:ScanSpells()
     
     if SimpleHeal.Ready then
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHeal]|r Scanned " .. totalSpells .. " healing spells.")
-        -- Debug: Show found spells
-        for _, spell in ipairs(SimpleHeal.Spells) do
-            local flag = spell.estimated and "|cffffff00[est]|r " or "|cff00ff00"
-            DEFAULT_CHAT_FRAME:AddMessage("|cffddffdd  Found: " .. flag .. spell.name .. " (Rank " .. spell.rank .. ") - " .. spell.avg .. " avg heal")
-        end
     else
         DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r No healing spells found! Check your spellbook.")
     end
@@ -190,30 +191,7 @@ function SimpleHeal:ProcessSpellSlot(slotIndex, classSpells)
         local maxRange = 40 -- Default range
         local mana, minVal, maxVal
         
-        -- Method 1: Use Nampower's enhanced spell APIs if available
-        if GetSpellIdForName and spellID and spellID > 0 then
-            -- Get accurate spell info using Nampower
-            local slot, bookType, actualSpellId = GetSpellSlotTypeIdForName(name)
-            if actualSpellId and actualSpellId > 0 then
-                spellID = actualSpellId
-            end
-            
-            -- Get cooldown info which includes mana cost data
-            if GetSpellIdCooldown then
-                local cdInfo = GetSpellIdCooldown(spellID)
-                -- Nampower cooldown info might have additional data
-            end
-            
-            -- Check if spell is usable (includes mana check)
-            if IsSpellUsable then
-                local usable, outOfMana = IsSpellUsable(spellID)
-                if outOfMana then
-                    mana = UnitMana("player") + 1 -- Set mana higher than current to mark as unusable
-                end
-            end
-        end
-        
-        -- Method 2: Use SuperWoW SpellInfo for range and other data
+        -- Use SuperWoW SpellInfo for range and other data
         if SpellInfo and spellID and spellID > 0 then
             local sName, sRank, texture, minR, maxR = SpellInfo(spellID)
             if type(maxR) == "number" and maxR > 0 then
@@ -221,7 +199,7 @@ function SimpleHeal:ProcessSpellSlot(slotIndex, classSpells)
             end
         end
         
-        -- Method 3: Parse tooltip for exact mana and healing values
+        -- Parse tooltip for exact mana and healing values
         mana, minVal, maxVal = SimpleHeal:ParseSpellTooltip(slotIndex)
         
         if mana and minVal and maxVal then
@@ -265,11 +243,47 @@ function SimpleHeal:UnitHasBuff(unit, buffName)
         local tex, _, _, auraID = UnitBuff(unit, i)
         if not tex then break end
         
+        -- Method 1: Try SuperWoW's enhanced UnitBuff with auraID
         if auraID then
             local name = SpellInfo(auraID)
-            if name and string.lower(name) == bname then return true end
+            if name and string.lower(name) == bname then 
+                if SimpleHeal.DebugMode then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[BUFF]|r Found " .. buffName .. " via SpellInfo(" .. auraID .. ")")
+                end
+                return true 
+            end
         end
+        
+        -- Method 2: Try GetPlayerBuffID if available (SuperWoW)
+        if GetPlayerBuffID then
+            local buffID = GetPlayerBuffID(i)
+            if buffID then
+                local name = SpellInfo(buffID)
+                if name and string.lower(name) == bname then 
+                    if SimpleHeal.DebugMode then
+                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[BUFF]|r Found " .. buffName .. " via GetPlayerBuffID(" .. buffID .. ")")
+                    end
+                    return true 
+                end
+            end
+        end
+        
+        -- Method 3: Fallback to texture name matching
+        if tex then
+            local textureName = string.lower(tex)
+            if string.find(textureName, bname, 1, true) then
+                if SimpleHeal.DebugMode then
+                    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[BUFF]|r Found " .. buffName .. " via texture: " .. tex)
+                end
+                return true
+            end
+        end
+        
         i = i + 1
+    end
+    
+    if SimpleHeal.DebugMode then
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[BUFF]|r " .. buffName .. " NOT found on " .. unit)
     end
     return false
 end
@@ -311,7 +325,9 @@ function SimpleHeal:ParseSpellTooltip(spellID)
         local text = line:GetText()
         if text then
             -- Debug: Show what we're trying to parse
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[TOOLTIP]|r Mana line: " .. text)
+            if SimpleHeal.DebugMode then
+                DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[TOOLTIP]|r Mana line: " .. text)
+            end
             -- Try multiple mana patterns
             local _, _, m = string.find(text, "(%d+) Mana")
             if not m then
@@ -321,7 +337,9 @@ function SimpleHeal:ParseSpellTooltip(spellID)
                 _, _, m = string.find(text, "(%d+) to (%d+) Mana")
             end
             mana = tonumber(m)
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[TOOLTIP]|r Parsed mana: " .. tostring(mana))
+            if SimpleHeal.DebugMode then
+                DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[TOOLTIP]|r Parsed mana: " .. tostring(mana))
+            end
         end
     end
     
@@ -600,59 +618,44 @@ function SimpleHeal:PickBestRank(spellList, deficit, unit, isEmergency)
         
         local skip = false
         
-        -- Use Nampower's enhanced spell usability checking
-        if IsSpellUsable then
-            local usable, outOfMana
-            -- Try with spellID first, then fallback to spell name
-            if spell.spellID and spell.spellID > 0 then
-                usable, outOfMana = IsSpellUsable(spell.spellID)
-            else
-                usable, outOfMana = IsSpellUsable(spell.name)
-            end
-            -- Debug: Show spell usability info
-            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[DEBUG]|r " .. spell.name .. " - Usable: " .. tostring(usable) .. ", OOM: " .. tostring(outOfMana) .. ", Mana: " .. spell.mana .. "/" .. playerMana)
-            if outOfMana or not usable then 
-                skip = true 
-            end
-        elseif spell.mana > playerMana then
+        -- Use basic mana checking instead of Nampower APIs
+        if spell.mana > playerMana then
             skip = true
+        end
+        
+        -- Debug: Show spell usability info
+        if SimpleHeal.DebugMode then
+            DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[DEBUG]|r " .. spell.name .. " - Mana: " .. spell.mana .. "/" .. playerMana .. " - Skip: " .. tostring(skip))
         end
 
         if not skip then
-            if isHot and unit and SimpleHeal:UnitHasBuff(unit, spell.name) then
-                skip = true
+            if isHot and unit then
+                -- More specific HoT checking - only skip if the target already has THIS SPECIFIC HoT
+                if SimpleHeal:UnitHasBuff(unit, spell.name) then
+                    if SimpleHeal.DebugMode then
+                        DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[HOT]|r Skipping " .. spell.name .. " - target already has this HoT")
+                    end
+                    skip = true
+                end
             elseif isShield then
                 if unit and (SimpleHeal:UnitHasBuff(unit, "Power Word: Shield") or SimpleHeal:UnitHasDebuff(unit, "Weakened Soul")) then
                     skip = true
                 else
-                    -- Use Nampower's enhanced cooldown checking
-                    if GetSpellIdCooldown then
-                        local cd = GetSpellIdCooldown(spell.spellID)
-                        if cd and cd.startTime and cd.startTime > 0 and cd.duration > 1.5 then 
-                            skip = true 
-                        end
-                    else
-                        local start, duration = GetSpellCooldown(spell.id, BOOKTYPE_SPELL)
-                        if start and start > 0 and duration > 1.5 then skip = true end
-                    end
+                    -- Use basic cooldown checking
+                    local start, duration = GetSpellCooldown(spell.id, BOOKTYPE_SPELL)
+                    if start and start > 0 and duration > 1.5 then skip = true end
                 end
             end
         end
         if not skip then table.insert(affordable, spell) end
     end
     if table.getn(affordable) == 0 then 
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[DEBUG]|r No affordable spells found!")
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[DEBUG]|r Player mana: " .. playerMana .. "/" .. playerMaxMana)
-        for _, spell in ipairs(spellList) do
-            local usable, outOfMana = "N/A", "N/A"
-            if IsSpellUsable then
-                if spell.spellID and spell.spellID > 0 then
-                    usable, outOfMana = IsSpellUsable(spell.spellID)
-                else
-                    usable, outOfMana = IsSpellUsable(spell.name)
-                end
+        if SimpleHeal.DebugMode then
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[DEBUG]|r No affordable spells found!")
+            DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[DEBUG]|r Player mana: " .. playerMana .. "/" .. playerMaxMana)
+            for _, spell in ipairs(spellList) do
+                DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[DEBUG]|r " .. spell.name .. " - Mana: " .. spell.mana .. ", Estimated: " .. tostring(spell.estimated or false))
             end
-            DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[DEBUG]|r " .. spell.name .. " - Mana: " .. spell.mana .. ", Usable: " .. tostring(usable) .. ", OOM: " .. tostring(outOfMana))
         end
         return nil 
     end
