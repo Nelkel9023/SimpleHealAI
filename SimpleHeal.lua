@@ -50,10 +50,12 @@ end
 function SimpleHeal:OnEvent(event)
     if event == "ADDON_LOADED" and arg1 == "SimpleHeal" then
         SimpleHeal:LoadSettings()
-    elseif event == "PLAYER_ENTERING_WORLD" or event == "SPELLS_CHANGED" then
+    elseif event == "PLAYER_ENTERING_WORLD" then
         if not SimpleHeal:CheckDependencies() then
             SimpleHeal.Ready = false
         end
+    elseif event == "SPELLS_CHANGED" then
+        -- Don't auto-scan on spell changes - user must manually scan
     elseif event == "UNIT_MANA" or event == "UNIT_MAXMANA" then
         if arg1 == "player" then SimpleHeal:CheckManaNotify() end
     end
@@ -132,47 +134,19 @@ function SimpleHeal:ScanSpells()
         return 
     end
     
-    -- Debug: Start scanning
-    -- DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHeal]|r Scanning spellbook for " .. class .. "...")
+    DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHeal]|r Scanning spellbook for " .. class .. "...")
 
     local totalSpells = 0
     local numTabs = GetNumSpellTabs()
-    local _, _, offset, numSlots = GetSpellTabInfo(numTabs)
-    local lastIndex = (offset or 0) + (numSlots or 0)
-    if lastIndex == 0 then lastIndex = 300 end -- Fallback
-
-    for i = 1, lastIndex do
-        local name, rank, spellID = GetSpellName(i, BOOKTYPE_SPELL)
-        if not name then break end
-        
-        local lowName = string.lower(name)
-        local isMatch = false
-        
-        -- Use partial match for safety with lookup
-        for key, _ in pairs(classSpells) do
-            if string.find(lowName, key) then
-                isMatch = true
-                break
-            end
-        end
-
-        if isMatch then
-            -- SuperWoW SpellInfo returns: name, rank, texture, minRange, maxRange
-            local _, _, _, _, maxR = SpellInfo(spellID or 0)
-            local mana, minVal, maxVal = SimpleHeal:ParseSpellTooltip(i)
-            
-            if mana and minVal and maxVal then
-                table.insert(SimpleHeal.Spells, {
-                    id = i,
-                    spellID = spellID,
-                    name = name,
-                    rank = SimpleHeal:ExtractRank(rank),
-                    mana = mana,
-                    avg = (minVal + maxVal) / 2,
-                    range = (type(maxR) == "number" and maxR > 0) and maxR or 40
-                })
-                totalSpells = totalSpells + 1
-                -- DEFAULT_CHAT_FRAME:AddMessage("|cffddffdd[SimpleHeal]|r Found: " .. name .. " (Rank " .. SimpleHeal:ExtractRank(rank) .. ")")
+    
+    -- Use enhanced tab-based scanning with SuperWoW
+    for tabIndex = 1, numTabs do
+        local _, _, offset, numSlots = GetSpellTabInfo(tabIndex)
+        if offset and numSlots then
+            for i = offset + 1, offset + numSlots do
+                if SimpleHeal:ProcessSpellSlot(i, classSpells) then
+                    totalSpells = totalSpells + 1
+                end
             end
         end
     end
@@ -187,9 +161,101 @@ function SimpleHeal:ScanSpells()
     
     if SimpleHeal.Ready then
         DEFAULT_CHAT_FRAME:AddMessage("|cff00ff00[SimpleHeal]|r Scanned " .. totalSpells .. " healing spells.")
+        -- Debug: Show found spells
+        for _, spell in ipairs(SimpleHeal.Spells) do
+            local flag = spell.estimated and "|cffffff00[est]|r " or "|cff00ff00"
+            DEFAULT_CHAT_FRAME:AddMessage("|cffddffdd  Found: " .. flag .. spell.name .. " (Rank " .. spell.rank .. ") - " .. spell.avg .. " avg heal")
+        end
     else
-        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r No healing spells found! Make sure you are a healer and have spells in your book.")
+        DEFAULT_CHAT_FRAME:AddMessage("|cffff0000[SimpleHeal]|r No healing spells found! Check your spellbook.")
     end
+end
+
+function SimpleHeal:ProcessSpellSlot(slotIndex, classSpells)
+    local name, rank, spellID = GetSpellName(slotIndex, BOOKTYPE_SPELL)
+    if not name then return false end
+    
+    local lowName = string.lower(name)
+    local isMatch = false
+    
+    -- Use partial match for safety with lookup
+    for key, _ in pairs(classSpells) do
+        if string.find(lowName, key, 1, true) then
+            isMatch = true
+            break
+        end
+    end
+
+    if isMatch then
+        local maxRange = 40 -- Default range
+        local mana, minVal, maxVal
+        
+        -- Method 1: Use Nampower's enhanced spell APIs if available
+        if GetSpellIdForName and spellID and spellID > 0 then
+            -- Get accurate spell info using Nampower
+            local slot, bookType, actualSpellId = GetSpellSlotTypeIdForName(name)
+            if actualSpellId and actualSpellId > 0 then
+                spellID = actualSpellId
+            end
+            
+            -- Get cooldown info which includes mana cost data
+            if GetSpellIdCooldown then
+                local cdInfo = GetSpellIdCooldown(spellID)
+                -- Nampower cooldown info might have additional data
+            end
+            
+            -- Check if spell is usable (includes mana check)
+            if IsSpellUsable then
+                local usable, outOfMana = IsSpellUsable(spellID)
+                if outOfMana then
+                    mana = UnitMana("player") + 1 -- Set mana higher than current to mark as unusable
+                end
+            end
+        end
+        
+        -- Method 2: Use SuperWoW SpellInfo for range and other data
+        if SpellInfo and spellID and spellID > 0 then
+            local sName, sRank, texture, minR, maxR = SpellInfo(spellID)
+            if type(maxR) == "number" and maxR > 0 then
+                maxRange = maxR
+            end
+        end
+        
+        -- Method 3: Parse tooltip for exact mana and healing values
+        mana, minVal, maxVal = SimpleHeal:ParseSpellTooltip(slotIndex)
+        
+        if mana and minVal and maxVal then
+            table.insert(SimpleHeal.Spells, {
+                id = slotIndex,
+                spellID = spellID or slotIndex,
+                name = name,
+                rank = SimpleHeal:ExtractRank(rank),
+                mana = mana,
+                avg = (minVal + maxVal) / 2,
+                range = maxRange
+            })
+            return true
+        else
+            -- Use enhanced estimation if tooltip parsing fails
+            local estimatedMana = SimpleHeal:EstimateManaCost(name, SimpleHeal:ExtractRank(rank))
+            local estimatedHeal = SimpleHeal:EstimateHealingAmount(name, SimpleHeal:ExtractRank(rank))
+            
+            if estimatedMana and estimatedHeal then
+                table.insert(SimpleHeal.Spells, {
+                    id = slotIndex,
+                    spellID = spellID or slotIndex,
+                    name = name,
+                    rank = SimpleHeal:ExtractRank(rank),
+                    mana = estimatedMana,
+                    avg = estimatedHeal,
+                    range = maxRange,
+                    estimated = true
+                })
+                return true
+            end
+        end
+    end
+    return false
 end
 
 function SimpleHeal:UnitHasBuff(unit, buffName)
@@ -224,45 +290,65 @@ function SimpleHeal:UnitHasDebuff(unit, debuffName)
     return false
 end
 
-function SimpleHeal:ExtractRank(rankStr)
-    if not rankStr then return 1 end
-    local _, _, num = string.find(tostring(rankStr), "(%d+)")
-    return tonumber(num) or 1
-end
-
 function SimpleHeal:ParseSpellTooltip(spellID)
     local tooltip = getglobal("SimpleHeal_Tooltip")
+    if not tooltip then return nil, nil, nil end
+    
     tooltip:SetOwner(UIParent, "ANCHOR_NONE")
     tooltip:ClearLines()
-    tooltip:SetSpell(spellID, BOOKTYPE_SPELL)
+    
+    local success = pcall(tooltip.SetSpell, tooltip, spellID, BOOKTYPE_SPELL)
+    if not success then
+        tooltip:Hide()
+        return nil, nil, nil
+    end
     
     local mana, minHeal, maxHeal
+    
+    -- Parse mana cost from line 2
     local line = getglobal("SimpleHeal_TooltipTextLeft2")
     if line then
         local text = line:GetText()
-        if text and string.find(text, "Mana") then
+        if text then
+            -- Try multiple mana patterns
             local _, _, m = string.find(text, "(%d+) Mana")
+            if not m then
+                _, _, m = string.find(text, "(%d+)%% of base mana")
+            end
+            if not m then
+                _, _, m = string.find(text, "(%d+) to (%d+) Mana")
+            end
             mana = tonumber(m)
         end
     end
     
+    -- Parse healing values from lines 3-10
     for j = 3, 10 do
         line = getglobal("SimpleHeal_TooltipTextLeft" .. j)
         if line then
             local text = line:GetText()
             if text then
-                local _, _, min = string.find(text, "Heals.+ (%d+) to")
-                local _, _, max = string.find(text, "to (%d+)")
-                if not (min and max) then
+                -- Try multiple healing patterns
+                local _, _, min, max = string.find(text, "Heals for (%d+) to (%d+)")
+                if not min then
+                    _, _, min, max = string.find(text, "Heals (%d+) to (%d+)")
+                end
+                if not min then
+                    _, _, min = string.find(text, "Heals for (%d+)")
+                    max = min
+                end
+                if not min then
                     _, _, min = string.find(text, "Heals (%d+)")
                     max = min
                 end
-                
                 if not min then
-                    _, _, min = string.find(text, "absorbing (%d+)")
+                    _, _, min, max = string.find(text, "absorbing (%d+) to (%d+) damage")
+                end
+                if not min then
+                    _, _, min = string.find(text, "absorbing (%d+) damage")
                     max = min
                 end
-
+                
                 if min then
                     minHeal, maxHeal = tonumber(min), tonumber(max)
                     break
@@ -270,8 +356,97 @@ function SimpleHeal:ParseSpellTooltip(spellID)
             end
         end
     end
+    
     tooltip:Hide()
     return mana, minHeal, maxHeal
+end
+
+function SimpleHeal:EstimateManaCost(spellName, rank)
+    -- Basic mana cost estimation based on spell type and rank
+    local lowName = string.lower(spellName)
+    
+    if string.find(lowName, "flash heal") then
+        return 35 + (rank * 25)
+    elseif string.find(lowName, "greater heal") then
+        return 170 + (rank * 110)
+    elseif string.find(lowName, "heal") then
+        return 30 + (rank * 20)
+    elseif string.find(lowName, "lesser heal") then
+        return 25 + (rank * 15)
+    elseif string.find(lowName, "prayer of healing") then
+        return 400 + (rank * 200)
+    elseif string.find(lowName, "renew") then
+        return 15 + (rank * 10)
+    elseif string.find(lowName, "power word: shield") then
+        return 50 + (rank * 30)
+    elseif string.find(lowName, "flash of light") then
+        return 35 + (rank * 20)
+    elseif string.find(lowName, "holy light") then
+        return 35 + (rank * 25)
+    elseif string.find(lowName, "holy shock") then
+        return 60 + (rank * 40)
+    elseif string.find(lowName, "healing touch") then
+        return 55 + (rank * 35)
+    elseif string.find(lowName, "regrowth") then
+        return 80 + (rank * 50)
+    elseif string.find(lowName, "rejuvenation") then
+        return 25 + (rank * 15)
+    elseif string.find(lowName, "healing wave") then
+        return 25 + (rank * 20)
+    elseif string.find(lowName, "lesser healing wave") then
+        return 45 + (rank * 25)
+    elseif string.find(lowName, "chain heal") then
+        return 120 + (rank * 80)
+    else
+        return 100 -- Default estimate
+    end
+end
+
+function SimpleHeal:EstimateHealingAmount(spellName, rank)
+    -- Basic healing amount estimation based on spell type and rank
+    local lowName = string.lower(spellName)
+    
+    if string.find(lowName, "flash heal") then
+        return 200 + (rank * 150)
+    elseif string.find(lowName, "greater heal") then
+        return 500 + (rank * 400)
+    elseif string.find(lowName, "heal") then
+        return 100 + (rank * 80)
+    elseif string.find(lowName, "lesser heal") then
+        return 50 + (rank * 30)
+    elseif string.find(lowName, "prayer of healing") then
+        return 300 + (rank * 200)
+    elseif string.find(lowName, "renew") then
+        return 50 + (rank * 40)
+    elseif string.find(lowName, "power word: shield") then
+        return 100 + (rank * 80)
+    elseif string.find(lowName, "flash of light") then
+        return 150 + (rank * 100)
+    elseif string.find(lowName, "holy light") then
+        return 200 + (rank * 150)
+    elseif string.find(lowName, "holy shock") then
+        return 250 + (rank * 180)
+    elseif string.find(lowName, "healing touch") then
+        return 300 + (rank * 200)
+    elseif string.find(lowName, "regrowth") then
+        return 250 + (rank * 180)
+    elseif string.find(lowName, "rejuvenation") then
+        return 80 + (rank * 60)
+    elseif string.find(lowName, "healing wave") then
+        return 120 + (rank * 90)
+    elseif string.find(lowName, "lesser healing wave") then
+        return 180 + (rank * 120)
+    elseif string.find(lowName, "chain heal") then
+        return 350 + (rank * 250)
+    else
+        return 200 -- Default estimate
+    end
+end
+
+function SimpleHeal:ExtractRank(rankStr)
+    if not rankStr then return 1 end
+    local _, _, num = string.find(tostring(rankStr), "(%d+)")
+    return tonumber(num) or 1
 end
 
 --[[ ================================================================
@@ -381,22 +556,23 @@ function SimpleHeal:CanReach(unit)
     if not UnitExists(unit) or UnitIsDeadOrGhost(unit) then return false end
     if UnitIsUnit(unit, "player") then return true end
     
+    -- Use UnitXP LOS check if enabled
     if SimpleHeal_Saved and SimpleHeal_Saved.UseLOS then
-        local ok, los = pcall(UnitXP, "inSight", "player", unit)
-        if not ok or not los then return false end
+        local los = UnitXP("inSight", "player", unit)
+        if not los then return false end
     end
     
     local firstSpell = SimpleHeal.Spells and SimpleHeal.Spells[1]
     if not firstSpell then return false end
 
-    -- Nampower: IsSpellInRange(spellId/Name, [target]) -> 1 (in-range), 0 (out), -1 (invalid)
+    -- Method 1: Use Nampower's enhanced range checking
     if IsSpellInRange then
         local inRange = IsSpellInRange(firstSpell.spellID, unit)
         if inRange == 1 then return true end
         if inRange == 0 then return false end
     end
 
-    -- Fallback to UnitXP distance
+    -- Method 2: Use UnitXP distance for precise measurement
     local dist = UnitXP("distanceBetween", "player", unit)
     if not dist then return false end
 
@@ -421,10 +597,10 @@ function SimpleHeal:PickBestRank(spellList, deficit, unit, isEmergency)
         
         local skip = false
         
-        -- Nampower: IsSpellUsable(spellId/Name) -> usable, outOfMana
+        -- Use Nampower's enhanced spell usability checking
         if IsSpellUsable then
-            local usable, oom = IsSpellUsable(spell.spellID)
-            if oom or not usable then skip = true end
+            local usable, outOfMana = IsSpellUsable(spell.spellID)
+            if outOfMana or not usable then skip = true end
         elseif spell.mana > playerMana then
             skip = true
         end
@@ -436,15 +612,16 @@ function SimpleHeal:PickBestRank(spellList, deficit, unit, isEmergency)
                 if unit and (SimpleHeal:UnitHasBuff(unit, "Power Word: Shield") or SimpleHeal:UnitHasDebuff(unit, "Weakened Soul")) then
                     skip = true
                 else
-                    -- Nampower: GetSpellIdCooldown(spellId) -> {startTime, duration, enabled}
-                    local start, duration
+                    -- Use Nampower's enhanced cooldown checking
                     if GetSpellIdCooldown then
                         local cd = GetSpellIdCooldown(spell.spellID)
-                        start, duration = cd.startTime, cd.duration
+                        if cd and cd.startTime and cd.startTime > 0 and cd.duration > 1.5 then 
+                            skip = true 
+                        end
                     else
-                        start, duration = GetSpellCooldown(spell.id, BOOKTYPE_SPELL)
+                        local start, duration = GetSpellCooldown(spell.id, BOOKTYPE_SPELL)
+                        if start and start > 0 and duration > 1.5 then skip = true end
                     end
-                    if start and start > 0 and duration > 1.5 then skip = true end
                 end
             end
         end
